@@ -1821,3 +1821,82 @@ func TestSyncConfigRules(t *testing.T) {
 		})
 	})
 }
+
+func TestSyncOnDemandPullOnce(t *testing.T) {
+	Convey("Verify sync on demand pulls only one time", t, func(c C) {
+		sc, srcBaseURL, srcDir, _, _ := startUpstreamServer(false, false)
+		defer os.RemoveAll(srcDir)
+
+		defer func() {
+			sc.Shutdown()
+		}()
+
+		regex := ".*"
+		semver := true
+		var tlsVerify bool
+
+		syncRegistryConfig := sync.RegistryConfig{
+			Content: []sync.Content{
+				{
+					Prefix: testImage,
+					Tags: &sync.Tags{
+						Regex:  &regex,
+						Semver: &semver,
+					},
+				},
+			},
+			URL:       srcBaseURL,
+			TLSVerify: &tlsVerify,
+			CertDir:   "",
+			OnDemand:  true,
+		}
+
+		syncConfig := &sync.Config{Registries: []sync.RegistryConfig{syncRegistryConfig}}
+
+		dc, destBaseURL, destDir, _ := startDownstreamServer(false, syncConfig)
+		defer os.RemoveAll(destDir)
+
+		defer func() {
+			dc.Shutdown()
+		}()
+
+		done := make(chan bool)
+
+		go func() {
+			_, _ = resty.R().Get(destBaseURL + "/v2/" + testImage + "/manifests/" + testImageTag)
+			done <- true
+		}()
+
+		go func() {
+			_, _ = resty.R().Get(destBaseURL + "/v2/" + testImage + "/manifests/" + testImageTag)
+			done <- true
+		}()
+
+		go func() {
+			_, _ = resty.R().Get(destBaseURL + "/v2/" + testImage + "/manifests/" + testImageTag)
+			done <- true
+		}()
+
+		syncBlobUploadDir := path.Join(destDir, testImage, sync.SyncBlobUploadDir)
+		var maxLen int
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				dirs, err := ioutil.ReadDir(syncBlobUploadDir)
+				if err != nil {
+					continue
+				}
+				// check how many .sync/uuid/ dirs are created, if just one then on demand pulled only once
+				if len(dirs) > maxLen {
+					maxLen = len(dirs)
+				}
+			}
+
+			break
+		}
+
+		So(maxLen, ShouldEqual, 1)
+	})
+}
