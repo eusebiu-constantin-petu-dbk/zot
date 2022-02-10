@@ -296,7 +296,8 @@ func TestVerify(t *testing.T) {
 func TestLoadConfig(t *testing.T) {
 	Convey("Test viper load config", t, func(c C) {
 		config := config.New()
-		So(func() { cli.LoadConfiguration(config, "../../examples/config-policy.json") }, ShouldNotPanic)
+		err := cli.LoadConfiguration(config, "../../examples/config-policy.json")
+		So(err, ShouldNotBeNil)
 	})
 }
 

@@ -182,8 +182,8 @@ func filterImagesBySemver(upstreamReferences *[]types.ImageReference, content Co
 }
 
 // imagesToCopyFromRepos lists all images given a registry name and its repos.
-func imagesToCopyFromUpstream(registryName string, repos []string, upstreamCtx *types.SystemContext,
-	content Content, log log.Logger) ([]types.ImageReference, error) {
+func imagesToCopyFromUpstream(ctx context.Context, registryName string, repos []string,
+	upstreamCtx *types.SystemContext, content Content, log log.Logger) ([]types.ImageReference, error) {
 	var upstreamReferences []types.ImageReference
 
 	for _, repoName := range repos {
@@ -194,7 +194,7 @@ func imagesToCopyFromUpstream(registryName string, repos []string, upstreamCtx *
 			return nil, err
 		}
 
-		tags, err := getImageTags(context.Background(), upstreamCtx, repoRef)
+		tags, err := getImageTags(ctx, upstreamCtx, repoRef)
 		if err != nil {
 			log.Error().Err(err).Msgf("couldn't fetch tags for %s", repoRef)
 
@@ -277,8 +277,9 @@ func getUpstreamContext(regCfg *RegistryConfig, credentials Credentials) *types.
 	return upstreamCtx
 }
 
-func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController storage.StoreController,
-	localCtx *types.SystemContext, policyCtx *signature.PolicyContext, credentials Credentials, log log.Logger) error {
+func syncRegistry(ctx context.Context, regCfg RegistryConfig, upstreamURL string,
+	storeController storage.StoreController, localCtx *types.SystemContext,
+	policyCtx *signature.PolicyContext, credentials Credentials, log log.Logger) error {
 	log.Info().Msgf("syncing registry: %s", upstreamURL)
 
 	var err error
@@ -304,7 +305,7 @@ func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController sto
 		return err
 	}
 
-	if err = retry.RetryIfNecessary(context.Background(), func() error {
+	if err = retry.RetryIfNecessary(ctx, func() error {
 		catalog, err = getUpstreamCatalog(httpClient, upstreamURL, log)
 
 		return err
@@ -328,8 +329,8 @@ func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController sto
 		r := repos
 		id := contentID
 
-		if err = retry.RetryIfNecessary(context.Background(), func() error {
-			refs, err := imagesToCopyFromUpstream(upstreamAddr, r, upstreamCtx, regCfg.Content[id], log)
+		if err = retry.RetryIfNecessary(ctx, func() error {
+			refs, err := imagesToCopyFromUpstream(ctx, upstreamAddr, r, upstreamCtx, regCfg.Content[id], log)
 			images = append(images, refs...)
 
 			return err
@@ -373,8 +374,8 @@ func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController sto
 
 		log.Info().Msgf("copying image %s:%s to %s", upstreamImageRef.DockerReference(), tag, localCachePath)
 
-		if err = retry.RetryIfNecessary(context.Background(), func() error {
-			_, err = copy.Image(context.Background(), policyCtx, localImageRef, upstreamImageRef, &options)
+		if err = retry.RetryIfNecessary(ctx, func() error {
+			_, err = copy.Image(ctx, policyCtx, localImageRef, upstreamImageRef, &options)
 
 			return err
 		}, retryOptions); err != nil {
@@ -392,7 +393,7 @@ func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController sto
 			return err
 		}
 
-		if err = retry.RetryIfNecessary(context.Background(), func() error {
+		if err = retry.RetryIfNecessary(ctx, func() error {
 			err = syncSignatures(httpClient, storeController, upstreamURL, repo, tag, log)
 
 			return err
@@ -430,7 +431,8 @@ func getLocalContexts(log log.Logger) (*types.SystemContext, *signature.PolicyCo
 	return localCtx, policyContext, nil
 }
 
-func Run(ctx context.Context, cfg Config, storeController storage.StoreController, wtgrp *goSync.WaitGroup, logger log.Logger) error {
+func Run(ctx context.Context, cfg Config, storeController storage.StoreController,
+	wtgrp *goSync.WaitGroup, logger log.Logger) error {
 	var credentialsFile CredentialsFile
 
 	var err error
@@ -479,7 +481,7 @@ func Run(ctx context.Context, cfg Config, storeController storage.StoreControlle
 				for _, upstreamURL := range regCfg.URLs {
 					upstreamAddr := StripRegistryTransport(upstreamURL)
 					// first try syncing main registry
-					if err := syncRegistry(regCfg, upstreamURL, storeController, localCtx, policyCtx,
+					if err := syncRegistry(ctx, regCfg, upstreamURL, storeController, localCtx, policyCtx,
 						credentialsFile[upstreamAddr], logger); err != nil {
 						logger.Error().Err(err).Str("registry", upstreamURL).
 							Msg("sync exited with error, falling back to auxiliary registries if any")
