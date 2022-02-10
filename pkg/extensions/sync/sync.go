@@ -430,7 +430,7 @@ func getLocalContexts(log log.Logger) (*types.SystemContext, *signature.PolicyCo
 	return localCtx, policyContext, nil
 }
 
-func Run(cfg Config, storeController storage.StoreController, wtgrp *goSync.WaitGroup, logger log.Logger) error {
+func Run(ctx context.Context, cfg Config, storeController storage.StoreController, wtgrp *goSync.WaitGroup, logger log.Logger) error {
 	var credentialsFile CredentialsFile
 
 	var err error
@@ -471,9 +471,8 @@ func Run(cfg Config, storeController storage.StoreController, wtgrp *goSync.Wait
 		tlogger := log.Logger{Logger: logger.With().Caller().Timestamp().Logger()}
 
 		// schedule each registry sync
-		go func(regCfg RegistryConfig, logger log.Logger) {
-			// run on intervals
-			for ; true; <-ticker.C {
+		go func(ctx context.Context, regCfg RegistryConfig, logger log.Logger) {
+			for {
 				// increment reference since will be busy, so shutdown has to wait
 				wtgrp.Add(1)
 
@@ -483,7 +482,7 @@ func Run(cfg Config, storeController storage.StoreController, wtgrp *goSync.Wait
 					if err := syncRegistry(regCfg, upstreamURL, storeController, localCtx, policyCtx,
 						credentialsFile[upstreamAddr], logger); err != nil {
 						logger.Error().Err(err).Str("registry", upstreamURL).
-							Msg("sync exited with error, falling back to auxiliary registries")
+							Msg("sync exited with error, falling back to auxiliary registries if any")
 					} else {
 						// if success fall back to main registry
 						break
@@ -491,8 +490,18 @@ func Run(cfg Config, storeController storage.StoreController, wtgrp *goSync.Wait
 				}
 				// mark as done after a single sync run
 				wtgrp.Done()
+
+				select {
+				case <-ctx.Done():
+					ticker.Stop()
+
+					return
+				case <-ticker.C:
+					// run on intervals
+					continue
+				}
 			}
-		}(regCfg, tlogger)
+		}(ctx, regCfg, tlogger)
 	}
 
 	logger.Info().Msg("finished setting up sync")

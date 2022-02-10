@@ -62,7 +62,7 @@ func newServeCmd(conf *config.Config) *cobra.Command {
 								log.Info().Msg("config file changed, trying to reload accessControl config")
 								newConfig := config.New()
 								LoadConfiguration(newConfig, args[0])
-								ctlr.Config.AccessControl = newConfig.AccessControl
+								ctlr.LoadNewConfig(newConfig)
 							}
 						// watch for errors
 						case err := <-watcher.Errors:
@@ -360,6 +360,7 @@ func LoadConfiguration(config *config.Config, configPath string) {
 
 	viperInstance.SetConfigFile(configPath)
 
+	// TODO don't panic, return error so that we won't panic on hot reload config.
 	if err := viperInstance.ReadInConfig(); err != nil {
 		log.Error().Err(err).Msg("error while reading configuration")
 		panic(err)
