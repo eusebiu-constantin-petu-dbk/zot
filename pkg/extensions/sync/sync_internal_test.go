@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net/url"
 	"os"
 	"path"
 	goSync "sync"
@@ -19,7 +18,6 @@ import (
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/rs/zerolog"
 	. "github.com/smartystreets/goconvey/convey"
-	"gopkg.in/resty.v1"
 	"zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/log"
@@ -178,166 +176,6 @@ func TestSyncInternal(t *testing.T) {
 
 		_, _, err = getLocalImageRef(imageStore, "zot][]321", "tag_tag][]")
 		So(err, ShouldNotBeNil)
-	})
-
-	Convey("Test getUpstreamCatalog() with missing certs", t, func() {
-		var tlsVerify bool
-		updateDuration := time.Microsecond
-		syncRegistryConfig := RegistryConfig{
-			Content: []Content{
-				{
-					Prefix: testImage,
-				},
-			},
-			URLs:         []string{test.BaseURL},
-			PollInterval: updateDuration,
-			TLSVerify:    &tlsVerify,
-			CertDir:      "/tmp/missing_certs/a/b/c/d/z",
-		}
-
-		port := test.GetFreePort()
-		baseURL := test.GetBaseURL(port)
-
-		httpClient, err := getHTTPClient(&syncRegistryConfig, baseURL, Credentials{}, log.NewLogger("debug", ""))
-		So(err, ShouldNotBeNil)
-		So(httpClient, ShouldBeNil)
-		// _, err = getUpstreamCatalog(httpClient, baseURL, log.NewLogger("debug", ""))
-		// So(err, ShouldNotBeNil)
-	})
-
-	Convey("Test getHttpClient() with bad certs", t, func() {
-		badCertsDir, err := ioutil.TempDir("", "bad_certs*")
-		if err != nil {
-			panic(err)
-		}
-
-		if err := os.WriteFile(path.Join(badCertsDir, "ca.crt"), []byte("certificate"), 0o600); err != nil {
-			panic(err)
-		}
-
-		defer os.RemoveAll(badCertsDir)
-
-		var tlsVerify bool
-		updateDuration := time.Microsecond
-		port := test.GetFreePort()
-		baseURL := test.GetBaseURL(port)
-		baseSecureURL := test.GetSecureBaseURL(port)
-
-		syncRegistryConfig := RegistryConfig{
-			Content: []Content{
-				{
-					Prefix: testImage,
-				},
-			},
-			URLs:         []string{baseURL, "invalidUrl]"},
-			PollInterval: updateDuration,
-			TLSVerify:    &tlsVerify,
-			CertDir:      badCertsDir,
-		}
-
-		httpClient, err := getHTTPClient(&syncRegistryConfig, baseURL, Credentials{}, log.NewLogger("debug", ""))
-		So(err, ShouldNotBeNil)
-		So(httpClient, ShouldBeNil)
-
-		syncRegistryConfig.CertDir = "/path/to/invalid/cert"
-		httpClient, err = getHTTPClient(&syncRegistryConfig, baseURL, Credentials{}, log.NewLogger("debug", ""))
-		So(err, ShouldNotBeNil)
-		So(httpClient, ShouldBeNil)
-
-		syncRegistryConfig.CertDir = ""
-		syncRegistryConfig.URLs = []string{baseSecureURL}
-
-		httpClient, err = getHTTPClient(&syncRegistryConfig, baseSecureURL, Credentials{}, log.NewLogger("debug", ""))
-		So(err, ShouldBeNil)
-		So(httpClient, ShouldNotBeNil)
-
-		_, err = getUpstreamCatalog(httpClient, baseURL, log.NewLogger("debug", ""))
-		So(err, ShouldNotBeNil)
-
-		_, err = getUpstreamCatalog(httpClient, "http://invalid:5000", log.NewLogger("debug", ""))
-		So(err, ShouldNotBeNil)
-
-		syncRegistryConfig.URLs = []string{test.BaseURL}
-		httpClient, err = getHTTPClient(&syncRegistryConfig, baseSecureURL, Credentials{}, log.NewLogger("debug", ""))
-		So(err, ShouldNotBeNil)
-		So(httpClient, ShouldBeNil)
-	})
-
-	Convey("Test imagesToCopyFromUpstream()", t, func() {
-		repos := []string{"repo1"}
-		upstreamCtx := &types.SystemContext{}
-
-		_, err := imagesToCopyFromUpstream("localhost:4566", repos, upstreamCtx, Content{}, log.NewLogger("debug", ""))
-		So(err, ShouldNotBeNil)
-
-		_, err = imagesToCopyFromUpstream("docker://localhost:4566", repos, upstreamCtx,
-			Content{}, log.NewLogger("debug", ""))
-		So(err, ShouldNotBeNil)
-	})
-
-	// Convey("Test OneImage() skips cosign signatures", t, func() {
-	// 	err := OneImage(Config{}, storage.StoreController{}, "repo", "sha256-.sig", log.NewLogger("", ""))
-	// 	So(err, ShouldBeNil)
-	// })
-
-	Convey("Test syncSignatures()", t, func() {
-		log := log.NewLogger("debug", "")
-		err := syncSignatures(resty.New(), storage.StoreController{}, "%", "repo", "tag", log)
-		So(err, ShouldNotBeNil)
-		err = syncSignatures(resty.New(), storage.StoreController{}, "http://zot", "repo", "tag", log)
-		So(err, ShouldNotBeNil)
-		err = syncSignatures(resty.New(), storage.StoreController{}, "https://google.com", "repo", "tag", log)
-		So(err, ShouldNotBeNil)
-		url, _ := url.Parse("invalid")
-		err = syncCosignSignature(resty.New(), storage.StoreController{}, *url, "repo", "tag", log)
-		So(err, ShouldNotBeNil)
-		err = syncNotarySignature(resty.New(), storage.StoreController{}, *url, "repo", "tag", log)
-		So(err, ShouldNotBeNil)
-	})
-
-	Convey("Test canSkipImage()", t, func() {
-		storageDir, err := ioutil.TempDir("", "oci-dest-repo-test")
-		if err != nil {
-			panic(err)
-		}
-
-		err = test.CopyFiles("../../../test/data", storageDir)
-		if err != nil {
-			panic(err)
-		}
-
-		defer os.RemoveAll(storageDir)
-
-		log := log.Logger{Logger: zerolog.New(os.Stdout)}
-		metrics := monitoring.NewMetricsServer(false, log)
-
-		imageStore := storage.NewImageStore(storageDir, false, storage.DefaultGCDelay, false, false, log, metrics)
-
-		repoRefStr := fmt.Sprintf("%s/%s", host, testImage)
-		repoRef, err := parseRepositoryReference(repoRefStr)
-		So(err, ShouldBeNil)
-		So(repoRef, ShouldNotBeNil)
-
-		taggedRef, err := reference.WithTag(repoRef, testImageTag)
-		So(err, ShouldBeNil)
-		So(taggedRef, ShouldNotBeNil)
-
-		upstreamRef, err := docker.NewReference(taggedRef)
-		So(err, ShouldBeNil)
-		So(taggedRef, ShouldNotBeNil)
-
-		canBeSkipped, err := canSkipImage(testImage, testImageTag, upstreamRef, imageStore, &types.SystemContext{}, log)
-		So(err, ShouldNotBeNil)
-		So(canBeSkipped, ShouldBeFalse)
-
-		err = os.Chmod(path.Join(imageStore.RootDir(), testImage, "index.json"), 0o000)
-		if err != nil {
-			panic(err)
-		}
-
-		canBeSkipped, err = canSkipImage(testImage, testImageTag, upstreamRef, imageStore, &types.SystemContext{}, log)
-		So(err, ShouldNotBeNil)
-		So(canBeSkipped, ShouldBeFalse)
 	})
 
 	Convey("Test filterRepos()", t, func() {

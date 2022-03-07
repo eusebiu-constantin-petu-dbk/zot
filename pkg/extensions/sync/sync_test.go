@@ -313,7 +313,7 @@ func TestOnDemand(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(resp.StatusCode(), ShouldEqual, 404)
 
-		err = os.Chmod(path.Join(destDir, testImage), 0o000)
+		err = os.MkdirAll(path.Join(destDir, testImage), 0o000)
 		if err != nil {
 			panic(err)
 		}
@@ -331,7 +331,7 @@ func TestOnDemand(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(resp.StatusCode(), ShouldEqual, 404)
 
-		err = os.Chmod(path.Join(destDir, testImage, sync.SyncBlobUploadDir), 0o000)
+		err = os.MkdirAll(path.Join(destDir, testImage, sync.SyncBlobUploadDir), 0o000)
 		if err != nil {
 			panic(err)
 		}

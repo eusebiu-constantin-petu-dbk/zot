@@ -1,7 +1,6 @@
 package sync
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -20,8 +19,8 @@ import (
 	"github.com/containers/image/v5/types"
 	guuid "github.com/gofrs/uuid"
 	"github.com/notaryproject/notation-go-lib"
+	notreg "github.com/notaryproject/notation/pkg/registry"
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"gopkg.in/resty.v1"
 	zerr "zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/common"
@@ -118,18 +117,18 @@ func getFileCredentials(filepath string) (CredentialsFile, error) {
 }
 
 func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Credentials,
-	log log.Logger) (*resty.Client, error) {
+	log log.Logger) (*resty.Client, *url.URL, error) {
 	client := resty.New()
 
 	if !common.Contains(regCfg.URLs, upstreamURL) {
-		return nil, zerr.ErrSyncInvalidUpstreamURL
+		return nil, nil, zerr.ErrSyncInvalidUpstreamURL
 	}
 
 	registryURL, err := url.Parse(upstreamURL)
 	if err != nil {
 		log.Error().Err(err).Str("url", upstreamURL).Msg("couldn't parse url")
 
-		return nil, err
+		return nil, nil, err
 	}
 
 	if regCfg.CertDir != "" {
@@ -142,7 +141,7 @@ func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Crede
 		if err != nil {
 			log.Error().Err(err).Msg("couldn't read CA certificate")
 
-			return nil, err
+			return nil, nil, err
 		}
 
 		caCertPool := x509.NewCertPool()
@@ -154,7 +153,7 @@ func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Crede
 		if err != nil {
 			log.Error().Err(err).Msg("couldn't read certificates key pairs")
 
-			return nil, err
+			return nil, nil, err
 		}
 
 		client.SetCertificates(cert)
@@ -170,272 +169,7 @@ func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Crede
 		client.SetBasicAuth(credentials.Username, credentials.Password)
 	}
 
-	return client, nil
-}
-
-func syncCosignSignature(client *resty.Client, storeController storage.StoreController,
-	regURL url.URL, repo, digest string, log log.Logger) error {
-	log.Info().Msg("syncing cosign signatures")
-
-	getCosignManifestURL := regURL
-
-	if !isCosignTag(digest) {
-		digest = strings.Replace(digest, ":", "-", 1) + ".sig"
-	}
-
-	getCosignManifestURL.Path = path.Join(getCosignManifestURL.Path, "v2", repo, "manifests", digest)
-
-	getCosignManifestURL.RawQuery = getCosignManifestURL.Query().Encode()
-
-	mResp, err := client.R().Get(getCosignManifestURL.String())
-	if err != nil {
-		log.Error().Err(err).Str("url", getCosignManifestURL.String()).
-			Msgf("couldn't get cosign manifest: %s", digest)
-
-		return err
-	}
-
-	if mResp.IsError() {
-		log.Info().Msgf("couldn't find any cosign signature from %s, status code: %d skipping",
-			getCosignManifestURL.String(), mResp.StatusCode())
-
-		return nil
-	}
-
-	var m ispec.Manifest
-
-	err = json.Unmarshal(mResp.Body(), &m)
-	if err != nil {
-		log.Error().Err(err).Str("url", getCosignManifestURL.String()).
-			Msgf("couldn't unmarshal cosign manifest %s", digest)
-
-		return err
-	}
-
-	imageStore := storeController.GetImageStore(repo)
-
-	for _, blob := range m.Layers {
-		// get blob
-		getBlobURL := regURL
-		getBlobURL.Path = path.Join(getBlobURL.Path, "v2", repo, "blobs", blob.Digest.String())
-		getBlobURL.RawQuery = getBlobURL.Query().Encode()
-
-		resp, err := client.R().SetDoNotParseResponse(true).Get(getBlobURL.String())
-		if err != nil {
-			log.Error().Err(err).Msgf("couldn't get cosign blob: %s", blob.Digest.String())
-
-			return err
-		}
-
-		if resp.IsError() {
-			log.Info().Msgf("couldn't find cosign blob from %s, status code: %d", getBlobURL.String(), resp.StatusCode())
-
-			return zerr.ErrBadBlobDigest
-		}
-
-		defer resp.RawBody().Close()
-
-		// push blob
-		_, _, err = imageStore.FullBlobUpload(repo, resp.RawBody(), blob.Digest.String())
-		if err != nil {
-			log.Error().Err(err).Msg("couldn't upload cosign blob")
-
-			return err
-		}
-	}
-
-	// get config blob
-	getBlobURL := regURL
-	getBlobURL.Path = path.Join(getBlobURL.Path, "v2", repo, "blobs", m.Config.Digest.String())
-	getBlobURL.RawQuery = getBlobURL.Query().Encode()
-
-	resp, err := client.R().SetDoNotParseResponse(true).Get(getBlobURL.String())
-	if err != nil {
-		log.Error().Err(err).Msgf("couldn't get cosign config blob: %s", getBlobURL.String())
-
-		return err
-	}
-
-	if resp.IsError() {
-		log.Info().Msgf("couldn't find cosign config blob from %s, status code: %d", getBlobURL.String(), resp.StatusCode())
-
-		return zerr.ErrBadBlobDigest
-	}
-
-	defer resp.RawBody().Close()
-
-	// push config blob
-	_, _, err = imageStore.FullBlobUpload(repo, resp.RawBody(), m.Config.Digest.String())
-	if err != nil {
-		log.Error().Err(err).Msg("couldn't upload cosign blob")
-
-		return err
-	}
-
-	// push manifest
-	_, err = imageStore.PutImageManifest(repo, digest, ispec.MediaTypeImageManifest, mResp.Body())
-	if err != nil {
-		log.Error().Err(err).Msg("couldn't upload cosing manifest")
-
-		return err
-	}
-
-	return nil
-}
-
-func syncNotarySignature(client *resty.Client, storeController storage.StoreController,
-	regURL url.URL, repo, digest string, log log.Logger) error {
-	log.Info().Msg("syncing notary signatures")
-
-	getReferrersURL := regURL
-
-	// based on manifest digest get referrers
-	getReferrersURL.Path = path.Join(getReferrersURL.Path, "oras/artifacts/v1/", repo, "manifests", digest, "referrers")
-	getReferrersURL.RawQuery = getReferrersURL.Query().Encode()
-
-	resp, err := client.R().
-		SetHeader("Content-Type", "application/json").
-		SetQueryParam("artifactType", "application/vnd.cncf.notary.v2.signature").
-		Get(getReferrersURL.String())
-	if err != nil {
-		log.Error().Err(err).Msgf("couldn't get referrers from %s", getReferrersURL.String())
-
-		return err
-	}
-
-	if resp.IsError() {
-		log.Info().Msgf("couldn't find any notary signature from %s, status code: %d, skipping",
-			getReferrersURL.String(), resp.StatusCode())
-
-		return nil
-	}
-
-	var referrers ReferenceList
-
-	err = json.Unmarshal(resp.Body(), &referrers)
-	if err != nil {
-		log.Error().Err(err).Msgf("couldn't unmarshal notary signature from %s", getReferrersURL.String())
-
-		return err
-	}
-
-	imageStore := storeController.GetImageStore(repo)
-
-	for _, ref := range referrers.References {
-		// get referrer manifest
-		getRefManifestURL := regURL
-		getRefManifestURL.Path = path.Join(getRefManifestURL.Path, "v2", repo, "manifests", ref.Digest.String())
-		getRefManifestURL.RawQuery = getRefManifestURL.Query().Encode()
-
-		resp, err := client.R().
-			Get(getRefManifestURL.String())
-		if err != nil {
-			log.Error().Err(err).Msgf("couldn't get notary manifest: %s", getRefManifestURL.String())
-
-			return err
-		}
-
-		// read manifest
-		var m artifactspec.Manifest
-
-		err = json.Unmarshal(resp.Body(), &m)
-		if err != nil {
-			log.Error().Err(err).Msgf("couldn't unmarshal notary manifest: %s", getRefManifestURL.String())
-
-			return err
-		}
-
-		for _, blob := range m.Blobs {
-			getBlobURL := regURL
-			getBlobURL.Path = path.Join(getBlobURL.Path, "v2", repo, "blobs", blob.Digest.String())
-			getBlobURL.RawQuery = getBlobURL.Query().Encode()
-
-			resp, err := client.R().SetDoNotParseResponse(true).Get(getBlobURL.String())
-			if err != nil {
-				log.Error().Err(err).Msgf("couldn't get notary blob: %s", getBlobURL.String())
-
-				return err
-			}
-
-			defer resp.RawBody().Close()
-
-			if resp.IsError() {
-				log.Info().Msgf("couldn't find notary blob from %s, status code: %d",
-					getBlobURL.String(), resp.StatusCode())
-
-				return zerr.ErrBadBlobDigest
-			}
-
-			_, _, err = imageStore.FullBlobUpload(repo, resp.RawBody(), blob.Digest.String())
-			if err != nil {
-				log.Error().Err(err).Msg("couldn't upload notary sig blob")
-
-				return err
-			}
-		}
-
-		_, err = imageStore.PutImageManifest(repo, ref.Digest.String(), artifactspec.MediaTypeArtifactManifest, resp.Body())
-		if err != nil {
-			log.Error().Err(err).Msg("couldn't upload notary sig manifest")
-
-			return err
-		}
-	}
-
-	return nil
-}
-
-func syncSignatures(client *resty.Client, storeController storage.StoreController,
-	registryURL, repo, tag string, log log.Logger) error {
-	log.Info().Msgf("syncing signatures from %s/%s:%s", registryURL, repo, tag)
-	// get manifest and find out its digest
-	regURL, err := url.Parse(registryURL)
-	if err != nil {
-		log.Error().Err(err).Msgf("couldn't parse registry URL: %s", registryURL)
-
-		return err
-	}
-
-	getManifestURL := *regURL
-
-	getManifestURL.Path = path.Join(getManifestURL.Path, "v2", repo, "manifests", tag)
-
-	resp, err := client.R().SetHeader("Content-Type", "application/json").Head(getManifestURL.String())
-	if err != nil {
-		log.Error().Err(err).Str("url", getManifestURL.String()).
-			Msgf("couldn't query %s", registryURL)
-
-		return err
-	}
-
-	digests, ok := resp.Header()["Docker-Content-Digest"]
-	if !ok {
-		log.Error().Err(zerr.ErrBadBlobDigest).Str("url", getManifestURL.String()).
-			Msgf("couldn't get digest for manifest: %s:%s", repo, tag)
-
-		return zerr.ErrBadBlobDigest
-	}
-
-	if len(digests) != 1 {
-		log.Error().Err(zerr.ErrBadBlobDigest).Str("url", getManifestURL.String()).
-			Msgf("multiple digests found for: %s:%s", repo, tag)
-
-		return zerr.ErrBadBlobDigest
-	}
-
-	err = syncNotarySignature(client, storeController, *regURL, repo, digests[0], log)
-	if err != nil {
-		return err
-	}
-
-	err = syncCosignSignature(client, storeController, *regURL, repo, digests[0], log)
-	if err != nil {
-		return err
-	}
-
-	log.Info().Msgf("successfully synced %s/%s:%s signatures", registryURL, repo, tag)
-
-	return nil
+	return client, registryURL, nil
 }
 
 func pushSyncedLocalImage(repo, tag, localCachePath string,
@@ -512,16 +246,6 @@ func pushSyncedLocalImage(repo, tag, localCachePath string,
 	return nil
 }
 
-// sync feature will try to pull cosign signature because for sync cosign signature is just an image
-// this function will check if tag is a cosign tag.
-func isCosignTag(tag string) bool {
-	if strings.HasPrefix(tag, "sha256-") && strings.HasSuffix(tag, ".sig") {
-		return true
-	}
-
-	return false
-}
-
 // sync needs transport to be stripped to not be wrongly interpreted as an image reference
 // at a non-fully qualified registry (hostname as image and port as tag).
 func StripRegistryTransport(url string) string {
@@ -574,8 +298,8 @@ func getLocalImageRef(imageStore storage.ImageStore, repo, tag string) (types.Im
 }
 
 // canSkipImage returns whether or not the image can be skipped from syncing.
-func canSkipImage(repo, tag string, upstreamRef types.ImageReference,
-	imageStore storage.ImageStore, upstreamCtx *types.SystemContext, log log.Logger) (bool, error) {
+func canSkipImage(repo, tag, digest string, client *resty.Client,
+	registryURL *url.URL, imageStore storage.ImageStore, log log.Logger) (bool, error) {
 	// filter already pulled images
 	_, localImageDigest, _, err := imageStore.GetImageManifest(repo, tag)
 	if err != nil {
@@ -588,18 +312,54 @@ func canSkipImage(repo, tag string, upstreamRef types.ImageReference,
 		return false, err
 	}
 
-	upstreamImageDigest, err := docker.GetDigest(context.Background(), upstreamCtx, upstreamRef)
-	if err != nil {
-		log.Error().Err(err).Msgf("couldn't get upstream image %s manifest", upstreamRef.DockerReference())
+	if localImageDigest != digest {
+		log.Info().Msgf("skipping syncing %s:%s, image already synced", repo, tag)
 
+		return false, nil
+	}
+
+	_, upstreamManifestDigest, err := getCosignManifest(client, *registryURL, repo, digest, log)
+	if err != nil {
 		return false, err
 	}
 
-	if localImageDigest == string(upstreamImageDigest) {
-		log.Info().Msgf("skipping syncing %s:%s, image already synced", repo, tag)
-
-		return true, nil
+	upstreamRefs, err := getNotaryRefs(client, *registryURL, repo, digest, log)
+	if err != nil {
+		return false, err
 	}
 
-	return false, nil
+	_, localManifestDigest, _, err := imageStore.GetImageManifest(repo, digest)
+	if err != nil {
+		return false, err
+	}
+
+	localRefs, err := imageStore.GetReferrers(repo, digest, notreg.ArtifactTypeNotation)
+	if err != nil {
+		return false, err
+	}
+
+	if upstreamManifestDigest != localManifestDigest {
+		return false, nil
+	}
+
+	if len(upstreamRefs.References) != len(localRefs) {
+		return false, nil
+	}
+
+	found := false
+	for _, upstreamRef := range upstreamRefs.References {
+		for _, localRef := range localRefs {
+			if upstreamRef.Digest != localRef.Digest {
+				continue
+			} else {
+				found = true
+			}
+		}
+		// if we didn't find an upstream sig locally.
+		if !found {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
