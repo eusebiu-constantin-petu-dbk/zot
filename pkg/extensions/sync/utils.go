@@ -297,11 +297,10 @@ func getLocalImageRef(imageStore storage.ImageStore, repo, tag string) (types.Im
 	return localImageRef, localCachePath, nil
 }
 
-// canSkipImage returns whether or not the image can be skipped from syncing.
-func canSkipImage(repo, tag, digest string, client *resty.Client,
-	registryURL *url.URL, imageStore storage.ImageStore, log log.Logger) (bool, error) {
-	// filter already pulled images
-	_, localImageDigest, _, err := imageStore.GetImageManifest(repo, tag)
+// canSkipImage returns whether or not we already have this image synced (including signatures)
+func canSkipImage(repo, tag, digest, cosignManifestDigest string, refs ReferenceList,
+	imageStore storage.ImageStore, log log.Logger) (bool, error) {
+	_, localManifestDigest, _, err := imageStore.GetImageManifest(repo, tag)
 	if err != nil {
 		if errors.Is(err, zerr.ErrRepoNotFound) || errors.Is(err, zerr.ErrManifestNotFound) {
 			return false, nil
@@ -312,25 +311,8 @@ func canSkipImage(repo, tag, digest string, client *resty.Client,
 		return false, err
 	}
 
-	if localImageDigest != digest {
-		log.Info().Msgf("skipping syncing %s:%s, image already synced", repo, tag)
-
+	if localManifestDigest != digest {
 		return false, nil
-	}
-
-	_, upstreamManifestDigest, err := getCosignManifest(client, *registryURL, repo, digest, log)
-	if err != nil {
-		return false, err
-	}
-
-	upstreamRefs, err := getNotaryRefs(client, *registryURL, repo, digest, log)
-	if err != nil {
-		return false, err
-	}
-
-	_, localManifestDigest, _, err := imageStore.GetImageManifest(repo, digest)
-	if err != nil {
-		return false, err
 	}
 
 	localRefs, err := imageStore.GetReferrers(repo, digest, notreg.ArtifactTypeNotation)
@@ -338,16 +320,17 @@ func canSkipImage(repo, tag, digest string, client *resty.Client,
 		return false, err
 	}
 
-	if upstreamManifestDigest != localManifestDigest {
+	if cosignManifestDigest != localManifestDigest {
 		return false, nil
 	}
 
-	if len(upstreamRefs.References) != len(localRefs) {
+	if len(refs.References) != len(localRefs) {
 		return false, nil
 	}
 
-	found := false
-	for _, upstreamRef := range upstreamRefs.References {
+	for _, upstreamRef := range refs.References {
+		found := false
+
 		for _, localRef := range localRefs {
 			if upstreamRef.Digest != localRef.Digest {
 				continue

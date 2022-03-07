@@ -70,10 +70,6 @@ type Tags struct {
 	Semver *bool
 }
 
-type Sync struct {
-	upstream 
-}
-
 // getUpstreamCatalog gets all repos from a registry.
 func getUpstreamCatalog(client *resty.Client, upstreamURL string, log log.Logger) (catalog, error) {
 	var c catalog
@@ -368,20 +364,41 @@ func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController sto
 
 		imageStore := storeController.GetImageStore(repo)
 
-		isSigned, err := isImageSigned(repo, tag, string(upstreamImageDigest), httpClient, registryURL, log)
-		if !isSigned && regCfg.OnlySigned != nil && *regCfg.OnlySigned {
-			log.Info().Msgf("skipping image without signature %s", upstreamImageRef.DockerReference())
+		// get upstream signatures
+		cosignManifest, cosignManifestDigest, err := getCosignManifest(httpClient, *registryURL, repo, upstreamImageDigest.String(), log)
+		if err != nil {
+			log.Error().Err(err).Msgf("couldn't get upstream image %s cosign manifest", upstreamImageRef.DockerReference())
 
-			continue
+			return err
 		}
 
-		canBeSkipped, err := canSkipImage(repo, tag, string(upstreamImageDigest), httpClient, registryURL, imageStore, log)
+		refs, err := getNotaryRefs(httpClient, *registryURL, repo, upstreamImageDigest.String(), log)
+		if err != nil {
+			log.Error().Err(err).Msgf("couldn't get upstream image %s notary references", upstreamImageRef.DockerReference())
+
+			return err
+		}
+
+		// check if upstream image is signed
+		if cosignManifestDigest == "" && len(refs.References) == 0 {
+			// upstream image not signed
+			if regCfg.OnlySigned != nil && *regCfg.OnlySigned {
+				// skip unsigned images
+				log.Info().Msgf("skipping image without signature %s", upstreamImageRef.DockerReference())
+
+				continue
+			}
+		}
+
+		canBeSkipped, err := canSkipImage(repo, tag, string(upstreamImageDigest), cosignManifestDigest, refs, imageStore, log)
 		if err != nil {
 			log.Error().Err(err).Msgf("couldn't check if the upstream image %s can be skipped",
 				upstreamImageRef.DockerReference())
 		}
 
 		if canBeSkipped {
+			log.Info().Msgf("skipping already synced image %s", upstreamImageRef.DockerReference())
+
 			continue
 		}
 
@@ -417,7 +434,8 @@ func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController sto
 		}
 
 		if err = retry.RetryIfNecessary(context.Background(), func() error {
-			err = syncCosignSignature(httpClient, storeController, *registryURL, repo, string(upstreamImageDigest), log)
+			err = syncCosignSignature(httpClient, storeController, *registryURL, repo, upstreamImageDigest.String(),
+				cosignManifestDigest, cosignManifest, log)
 
 			return err
 		}, retryOptions); err != nil {
@@ -425,7 +443,8 @@ func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController sto
 		}
 
 		if err = retry.RetryIfNecessary(context.Background(), func() error {
-			err = syncNotarySignature(httpClient, storeController, *registryURL, repo, string(upstreamImageDigest), log)
+			err = syncNotarySignature(httpClient, storeController, *registryURL, repo, upstreamImageDigest.String(),
+				refs, log)
 
 			return err
 		}, retryOptions); err != nil {

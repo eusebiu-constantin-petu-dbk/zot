@@ -15,34 +15,6 @@ import (
 	"gopkg.in/resty.v1"
 )
 
-func isImageSigned(repo, tag, digest string, client *resty.Client,
-	registryURL *url.URL, log log.Logger) (bool, error) {
-	isSigned := false
-
-	_, cosignManifestDigest, err := getCosignManifest(client, *registryURL, repo, digest, log)
-	if err != nil {
-		return false, err
-	}
-
-	// if no manifest has been found
-	if cosignManifestDigest == "" {
-		return false, nil
-	} else {
-		isSigned = true
-	}
-
-	refs, err := getNotaryRefs(client, *registryURL, repo, digest, log)
-	if err != nil {
-		return isSigned, err
-	}
-
-	if len(refs.References) > 0 {
-		isSigned = true
-	}
-
-	return isSigned, nil
-}
-
 func getCosignManifest(client *resty.Client, regURL url.URL, repo, digest string, log log.Logger) (ispec.Manifest, string, error) {
 	var m ispec.Manifest
 
@@ -117,15 +89,10 @@ func getNotaryRefs(client *resty.Client, regURL url.URL, repo, digest string, lo
 }
 
 func syncCosignSignature(client *resty.Client, storeController storage.StoreController,
-	regURL url.URL, repo, digest string, log log.Logger) error {
+	regURL url.URL, repo, digest, cosignManifestDigest string, cosignManifest ispec.Manifest, log log.Logger) error {
 	log.Info().Msg("syncing cosign signatures")
 	if !isCosignTag(digest) {
 		digest = strings.Replace(digest, ":", "-", 1) + ".sig"
-	}
-
-	m, cosignManifestDigest, err := getCosignManifest(client, regURL, repo, digest, log)
-	if err != nil {
-		return err
 	}
 
 	// if no manifest found
@@ -135,7 +102,7 @@ func syncCosignSignature(client *resty.Client, storeController storage.StoreCont
 
 	imageStore := storeController.GetImageStore(repo)
 
-	for _, blob := range m.Layers {
+	for _, blob := range cosignManifest.Layers {
 		// get blob
 		getBlobURL := regURL
 		getBlobURL.Path = path.Join(getBlobURL.Path, "v2", repo, "blobs", blob.Digest.String())
@@ -167,7 +134,7 @@ func syncCosignSignature(client *resty.Client, storeController storage.StoreCont
 
 	// get config blob
 	getBlobURL := regURL
-	getBlobURL.Path = path.Join(getBlobURL.Path, "v2", repo, "blobs", m.Config.Digest.String())
+	getBlobURL.Path = path.Join(getBlobURL.Path, "v2", repo, "blobs", cosignManifest.Config.Digest.String())
 	getBlobURL.RawQuery = getBlobURL.Query().Encode()
 
 	resp, err := client.R().SetDoNotParseResponse(true).Get(getBlobURL.String())
@@ -186,14 +153,14 @@ func syncCosignSignature(client *resty.Client, storeController storage.StoreCont
 	defer resp.RawBody().Close()
 
 	// push config blob
-	_, _, err = imageStore.FullBlobUpload(repo, resp.RawBody(), m.Config.Digest.String())
+	_, _, err = imageStore.FullBlobUpload(repo, resp.RawBody(), cosignManifest.Config.Digest.String())
 	if err != nil {
 		log.Error().Err(err).Msg("couldn't upload cosign blob")
 
 		return err
 	}
 
-	manifestBuf, err := json.Marshal(m)
+	manifestBuf, err := json.Marshal(cosignManifest)
 	if err != nil {
 		log.Error().Err(err).Msg("couldn't marshal cosign manifest")
 	}
@@ -210,13 +177,8 @@ func syncCosignSignature(client *resty.Client, storeController storage.StoreCont
 }
 
 func syncNotarySignature(client *resty.Client, storeController storage.StoreController,
-	regURL url.URL, repo, digest string, log log.Logger) error {
+	regURL url.URL, repo, digest string, referrers ReferenceList, log log.Logger) error {
 	log.Info().Msg("syncing notary signatures")
-
-	referrers, err := getNotaryRefs(client, regURL, repo, digest, log)
-	if err != nil {
-		return err
-	}
 
 	imageStore := storeController.GetImageStore(repo)
 
