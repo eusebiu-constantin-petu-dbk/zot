@@ -173,10 +173,8 @@ func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Crede
 }
 
 func pushSyncedLocalImage(repo, tag, localCachePath string,
-	storeController storage.StoreController, log log.Logger) error {
+	imageStore storage.ImageStore, log log.Logger) error {
 	log.Info().Msgf("pushing synced local image %s/%s:%s to local registry", localCachePath, repo, tag)
-
-	imageStore := storeController.GetImageStore(repo)
 
 	metrics := monitoring.NewMetricsServer(false, log)
 	cacheImageStore := storage.NewImageStore(localCachePath, false, storage.DefaultGCDelay, false, false, log, metrics)
@@ -315,7 +313,7 @@ func canSkipImage(repo, tag, digest, cosignManifestDigest string, refs Reference
 		return false, nil
 	}
 
-	localRefs, err := imageStore.GetReferrers(repo, digest, notreg.ArtifactTypeNotation)
+	localRefs, err := imageStore.GetReferrers(repo, tag, notreg.ArtifactTypeNotation)
 	if err != nil {
 		return false, err
 	}

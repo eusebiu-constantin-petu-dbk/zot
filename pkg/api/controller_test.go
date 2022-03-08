@@ -1897,38 +1897,75 @@ func parseBearerAuthHeader(authHeaderRaw string) *authHeader {
 	return &h
 }
 
-func TestAuthorizationWithBasicAuth(t *testing.T) {
-	Convey("Make a new controller", t, func() {
+func TestOverwriteTag(t *testing.T) {
+
+	Convey("Test allow tags overwrite", t, func() {
 		port := test.GetFreePort()
 		baseURL := test.GetBaseURL(port)
-
 		conf := config.New()
 		conf.HTTP.Port = port
 		htpasswdPath := test.MakeHtpasswdFile()
 		defer os.Remove(htpasswdPath)
+		conf.Storage. = true
+	
+	
+		ctlr := api.NewController(conf)
+		dir, err := ioutil.TempDir("", "oci-repo-test")
+		if err != nil {
+			panic(err)
+		}
+		defer os.RemoveAll(dir)
+		err = test.CopyFiles("../../test/data", dir)
+		if err != nil {
+			panic(err)
+		}
+		ctlr.Config.Storage.RootDirectory = dir
+	
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+		resp = resty.
+	})
 
-		conf.HTTP.Auth = &config.AuthConfig{
-			HTPasswd: config.AuthHTPasswd{
-				Path: htpasswdPath,
-			},
+	Convey("Test don't allow tags overwrite", t, func() {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+		htpasswdPath := test.MakeHtpasswdFile()
+		defer os.Remove(htpasswdPath)
+		conf.Storage. = true
+	
+	
+		ctlr := api.NewController(conf)
+		dir, err := ioutil.TempDir("", "oci-repo-test")
+		if err != nil {
+			panic(err)
 		}
-		conf.AccessControl = &config.AccessControlConfig{
-			Repositories: config.Repositories{
-				AuthorizationAllRepos: config.PolicyGroup{
-					Policies: []config.Policy{
-						{
-							Users:   []string{},
-							Actions: []string{},
-						},
-					},
-					DefaultPolicy: []string{},
-				},
-			},
-			AdminPolicy: config.Policy{
-				Users:   []string{},
-				Actions: []string{},
-			},
+		defer os.RemoveAll(dir)
+		err = test.CopyFiles("../../test/data", dir)
+		if err != nil {
+			panic(err)
 		}
+		ctlr.Config.Storage.RootDirectory = dir
+	
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+	})
+}
+
+func TestAuthorizationWithBasicAuth(t *testing.T) {
+	Convey("Make a new controller", t, func() {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+		htpasswdPath := test.MakeHtpasswdFile()
+		defer os.Remove(htpasswdPath)
+		conf.Storage. = true
+
 
 		ctlr := api.NewController(conf)
 		dir, err := ioutil.TempDir("", "oci-repo-test")
@@ -2183,7 +2220,7 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 		}, DefaultPolicy: []string{}}
 
 		// get manifest should get 200 now
-		resp, err = resty.R().SetBasicAuth(username, passphrase).
+		resp, err = resty.R().
 			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
 		So(err, ShouldBeNil)
 		So(resp, ShouldNotBeNil)
@@ -2191,12 +2228,15 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 
 		manifestBlob := resp.Body()
 
+
 		// put manifest should get 403 without create perm
-		resp, err = resty.R().SetBasicAuth(username, passphrase).SetBody(manifestBlob).
-			Put(baseURL + "/v2/zot-test/manifests/0.0.2")
+		resp, err = resty.R().SetBody(manifestBlob).
+			Put(baseURL + "/v2/zot-test/manifests/0.0.1")
 		So(err, ShouldBeNil)
 		So(resp, ShouldNotBeNil)
-		So(resp.StatusCode(), ShouldEqual, http.StatusForbidden)
+
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+
 
 		// add create perm on repo
 		conf.AccessControl.Repositories["zot-test"].Policies[0].Actions =

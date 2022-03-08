@@ -18,6 +18,10 @@ import (
 func getCosignManifest(client *resty.Client, regURL url.URL, repo, digest string, log log.Logger) (ispec.Manifest, string, error) {
 	var m ispec.Manifest
 
+	if !isCosignTag(digest) {
+		digest = strings.Replace(digest, ":", "-", 1) + ".sig"
+	}
+
 	getCosignManifestURL := regURL
 
 	getCosignManifestURL.Path = path.Join(getCosignManifestURL.Path, "v2", repo, "manifests", digest)
@@ -88,9 +92,8 @@ func getNotaryRefs(client *resty.Client, regURL url.URL, repo, digest string, lo
 	return referrers, nil
 }
 
-func syncCosignSignature(client *resty.Client, storeController storage.StoreController,
+func syncCosignSignature(client *resty.Client, imageStore storage.ImageStore,
 	regURL url.URL, repo, digest, cosignManifestDigest string, cosignManifest ispec.Manifest, log log.Logger) error {
-	log.Info().Msg("syncing cosign signatures")
 	if !isCosignTag(digest) {
 		digest = strings.Replace(digest, ":", "-", 1) + ".sig"
 	}
@@ -100,7 +103,7 @@ func syncCosignSignature(client *resty.Client, storeController storage.StoreCont
 		return nil
 	}
 
-	imageStore := storeController.GetImageStore(repo)
+	log.Info().Msg("syncing cosign signatures")
 
 	for _, blob := range cosignManifest.Layers {
 		// get blob
@@ -176,11 +179,13 @@ func syncCosignSignature(client *resty.Client, storeController storage.StoreCont
 	return nil
 }
 
-func syncNotarySignature(client *resty.Client, storeController storage.StoreController,
+func syncNotarySignature(client *resty.Client, imageStore storage.ImageStore,
 	regURL url.URL, repo, digest string, referrers ReferenceList, log log.Logger) error {
-	log.Info().Msg("syncing notary signatures")
+	if len(referrers.References) == 0 {
+		return nil
+	}
 
-	imageStore := storeController.GetImageStore(repo)
+	log.Info().Msg("syncing notary signatures")
 
 	for _, ref := range referrers.References {
 		// get referrer manifest

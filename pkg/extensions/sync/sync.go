@@ -425,7 +425,7 @@ func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController sto
 			return err
 		}
 
-		err = pushSyncedLocalImage(repo, tag, localCachePath, storeController, log)
+		err = pushSyncedLocalImage(repo, tag, localCachePath, imageStore, log)
 		if err != nil {
 			log.Error().Err(err).Msgf("error while pushing synced cached image %s",
 				fmt.Sprintf("%s/%s:%s", localCachePath, repo, tag))
@@ -434,7 +434,7 @@ func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController sto
 		}
 
 		if err = retry.RetryIfNecessary(context.Background(), func() error {
-			err = syncCosignSignature(httpClient, storeController, *registryURL, repo, upstreamImageDigest.String(),
+			err = syncCosignSignature(httpClient, imageStore, *registryURL, repo, upstreamImageDigest.String(),
 				cosignManifestDigest, cosignManifest, log)
 
 			return err
@@ -443,7 +443,7 @@ func syncRegistry(regCfg RegistryConfig, upstreamURL string, storeController sto
 		}
 
 		if err = retry.RetryIfNecessary(context.Background(), func() error {
-			err = syncNotarySignature(httpClient, storeController, *registryURL, repo, upstreamImageDigest.String(),
+			err = syncNotarySignature(httpClient, imageStore, *registryURL, repo, upstreamImageDigest.String(),
 				refs, log)
 
 			return err

@@ -120,7 +120,7 @@ func TestStorageAPIs(t *testing.T) {
 
 				log := log.Logger{Logger: zerolog.New(os.Stdout)}
 				metrics := monitoring.NewMetricsServer(false, log)
-				imgStore = storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+				imgStore = storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, true, log, metrics)
 			}
 
 			Convey("Repo layout", t, func(c C) {
@@ -260,8 +260,15 @@ func TestStorageAPIs(t *testing.T) {
 								manifestBuf)
 							So(err, ShouldNotBeNil)
 
-							_, _, _, err = imgStore.GetImageManifest("test", digest.String())
+							buf, _, _, err = imgStore.GetImageManifest("test", digest.String())
 							So(err, ShouldNotBeNil)
+
+							var manifest ispec.Manifest
+
+							err := json.Unmarshal(buf.Bytes(), &manifest)
+
+							imgStore.PutImageManifest("zot-test", "1.0.0", ispec.MediaTypeImageManifest, buf.Bytes())
+
 
 							_, _, _, err = imgStore.GetImageManifest("inexistent", digest.String())
 							So(err, ShouldNotBeNil)

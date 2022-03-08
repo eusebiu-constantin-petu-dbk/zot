@@ -225,7 +225,7 @@ func TestSyncInternal(t *testing.T) {
 		testRootDir := path.Join(imageStore.RootDir(), testImage, SyncBlobUploadDir)
 		// testImagePath := path.Join(testRootDir, testImage)
 
-		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, storeController, log)
+		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
 		So(err, ShouldNotBeNil)
 
 		err = os.MkdirAll(testRootDir, 0o755)
@@ -254,7 +254,7 @@ func TestSyncInternal(t *testing.T) {
 
 		if os.Geteuid() != 0 {
 			So(func() {
-				_ = pushSyncedLocalImage(testImage, testImageTag, testRootDir, storeController, log)
+				_ = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
 			}, ShouldPanic)
 		}
 
@@ -267,7 +267,7 @@ func TestSyncInternal(t *testing.T) {
 			panic(err)
 		}
 
-		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, storeController, log)
+		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
 		So(err, ShouldNotBeNil)
 
 		if err := os.Chmod(path.Join(testRootDir, testImage, "blobs", "sha256",
@@ -281,7 +281,7 @@ func TestSyncInternal(t *testing.T) {
 			panic(err)
 		}
 
-		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, storeController, log)
+		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
 		So(err, ShouldNotBeNil)
 
 		if err := os.Chmod(cachedManifestConfigPath, 0o755); err != nil {
@@ -293,7 +293,7 @@ func TestSyncInternal(t *testing.T) {
 			panic(err)
 		}
 
-		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, storeController, log)
+		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
 		So(err, ShouldNotBeNil)
 
 		if err := os.Remove(manifestConfigPath); err != nil {
@@ -307,7 +307,7 @@ func TestSyncInternal(t *testing.T) {
 			panic(err)
 		}
 
-		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, storeController, log)
+		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
 		So(err, ShouldNotBeNil)
 	})
 }
