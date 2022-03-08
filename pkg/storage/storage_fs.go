@@ -612,7 +612,7 @@ func (is *ImageStoreFS) PutImageManifest(repo string, reference string, mediaTyp
 	updateIndex := true
 	// create a new descriptor
 	desc := ispec.Descriptor{
-		MediaType: mediaType, Size: int64(len(body)), Digest: mDigest,
+		MediaType: mediaType, Digest: mDigest, Size: int64(len(body)),
 		Platform: &ispec.Platform{Architecture: "amd64", OS: "linux"},
 	}
 	if !refIsDigest {
@@ -647,8 +647,8 @@ func (is *ImageStoreFS) PutImageManifest(repo string, reference string, mediaTyp
 				Msg("updating existing tag with new manifest contents")
 
 			desc = manifest
-			desc.Size = int64(len(body))
 			desc.Digest = mDigest
+			desc.Size = int64(len(body))
 
 			index.Manifests = append(index.Manifests[:midx], index.Manifests[midx+1:]...)
 
