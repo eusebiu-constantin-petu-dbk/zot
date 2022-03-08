@@ -109,11 +109,7 @@ func TestRunAlreadyRunningServer(t *testing.T) {
 
 		ctlr := api.NewController(conf)
 
-		globalDir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(globalDir)
+		globalDir := t.TempDir()
 
 		ctlr.Config.Storage.RootDirectory = globalDir
 
@@ -137,7 +133,7 @@ func TestRunAlreadyRunningServer(t *testing.T) {
 			_ = ctlr.Server.Shutdown(ctx)
 		}()
 
-		err = ctlr.Run()
+		err := ctlr.Run()
 		So(err, ShouldNotBeNil)
 	})
 }
@@ -253,12 +249,7 @@ func TestHtpasswdSingleCred(t *testing.T) {
 					},
 				}
 				ctlr := api.NewController(conf)
-				dir, err := ioutil.TempDir("", "oci-repo-test")
-				if err != nil {
-					panic(err)
-				}
-				defer os.RemoveAll(dir)
-				ctlr.Config.Storage.RootDirectory = dir
+				ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 				go startServer(ctlr)
 				defer stopServer(ctlr)
@@ -308,12 +299,7 @@ func TestHtpasswdTwoCreds(t *testing.T) {
 					},
 				}
 				ctlr := api.NewController(conf)
-				dir, err := ioutil.TempDir("", "oci-repo-test")
-				if err != nil {
-					panic(err)
-				}
-				defer os.RemoveAll(dir)
-				ctlr.Config.Storage.RootDirectory = dir
+				ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 				go startServer(ctlr)
 				defer stopServer(ctlr)
@@ -364,12 +350,7 @@ func TestHtpasswdFiveCreds(t *testing.T) {
 				},
 			}
 			ctlr := api.NewController(conf)
-			dir, err := ioutil.TempDir("", "oci-repo-test")
-			if err != nil {
-				panic(err)
-			}
-			defer os.RemoveAll(dir)
-			ctlr.Config.Storage.RootDirectory = dir
+			ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 			go startServer(ctlr)
 			defer stopServer(ctlr)
@@ -402,12 +383,7 @@ func TestRatelimit(t *testing.T) {
 			Rate: &rate,
 		}
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -443,12 +419,7 @@ func TestRatelimit(t *testing.T) {
 			},
 		}
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -485,12 +456,7 @@ func TestRatelimit(t *testing.T) {
 			},
 		}
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -526,12 +492,7 @@ func TestBasicAuth(t *testing.T) {
 			},
 		}
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -565,13 +526,7 @@ func TestInterruptedBlobUpload(t *testing.T) {
 		conf.HTTP.Port = port
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -805,17 +760,8 @@ func TestMultipleInstance(t *testing.T) {
 		err := ctlr.Run()
 		So(err, ShouldEqual, errors.ErrImgStoreNotFound)
 
-		globalDir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(globalDir)
-
-		subDir, err := ioutil.TempDir("", "oci-sub-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(subDir)
+		globalDir := t.TempDir()
+		subDir := t.TempDir()
 
 		ctlr.Config.Storage.RootDirectory = globalDir
 		subPathMap := make(map[string]config.StorageConfig)
@@ -848,17 +794,8 @@ func TestMultipleInstance(t *testing.T) {
 			},
 		}
 		ctlr := api.NewController(conf)
-		globalDir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(globalDir)
-
-		subDir, err := ioutil.TempDir("", "oci-sub-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(subDir)
+		globalDir := t.TempDir()
+		subDir := t.TempDir()
 
 		ctlr.Config.Storage.RootDirectory = globalDir
 		subPathMap := make(map[string]config.StorageConfig)
@@ -916,12 +853,7 @@ func TestTLSWithBasicAuth(t *testing.T) {
 		}
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -982,12 +914,7 @@ func TestTLSWithBasicAuthAllowReadAccess(t *testing.T) {
 		conf.HTTP.AllowReadAccess = true
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -1042,12 +969,7 @@ func TestTLSMutualAuth(t *testing.T) {
 		}
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -1115,12 +1037,7 @@ func TestTLSMutualAuthAllowReadAccess(t *testing.T) {
 		conf.HTTP.AllowReadAccess = true
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -1201,12 +1118,7 @@ func TestTLSMutualAndBasicAuth(t *testing.T) {
 		}
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -1284,12 +1196,7 @@ func TestTLSMutualAndBasicAuthAllowReadAccess(t *testing.T) {
 		conf.HTTP.AllowReadAccess = true
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -1443,12 +1350,7 @@ func TestBasicAuthWithLDAP(t *testing.T) {
 			},
 		}
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -1532,10 +1434,7 @@ func TestBearerAuth(t *testing.T) {
 			},
 		}
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		So(err, ShouldBeNil)
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -1699,10 +1598,7 @@ func TestBearerAuthWithAllowReadAccess(t *testing.T) {
 		}
 		conf.HTTP.AllowReadAccess = true
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		So(err, ShouldBeNil)
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 		go startServer(ctlr)
 		defer stopServer(ctlr)
@@ -1897,83 +1793,42 @@ func parseBearerAuthHeader(authHeaderRaw string) *authHeader {
 	return &h
 }
 
-func TestOverwriteTag(t *testing.T) {
-
-	Convey("Test allow tags overwrite", t, func() {
-		port := test.GetFreePort()
-		baseURL := test.GetBaseURL(port)
-		conf := config.New()
-		conf.HTTP.Port = port
-		htpasswdPath := test.MakeHtpasswdFile()
-		defer os.Remove(htpasswdPath)
-		conf.Storage. = true
-	
-	
-		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		err = test.CopyFiles("../../test/data", dir)
-		if err != nil {
-			panic(err)
-		}
-		ctlr.Config.Storage.RootDirectory = dir
-	
-		go startServer(ctlr)
-		defer stopServer(ctlr)
-		test.WaitTillServerReady(baseURL)
-		resp = resty.
-	})
-
-	Convey("Test don't allow tags overwrite", t, func() {
-		port := test.GetFreePort()
-		baseURL := test.GetBaseURL(port)
-		conf := config.New()
-		conf.HTTP.Port = port
-		htpasswdPath := test.MakeHtpasswdFile()
-		defer os.Remove(htpasswdPath)
-		conf.Storage. = true
-	
-	
-		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		err = test.CopyFiles("../../test/data", dir)
-		if err != nil {
-			panic(err)
-		}
-		ctlr.Config.Storage.RootDirectory = dir
-	
-		go startServer(ctlr)
-		defer stopServer(ctlr)
-		test.WaitTillServerReady(baseURL)
-
-	})
-}
-
 func TestAuthorizationWithBasicAuth(t *testing.T) {
 	Convey("Make a new controller", t, func() {
 		port := test.GetFreePort()
 		baseURL := test.GetBaseURL(port)
+
 		conf := config.New()
 		conf.HTTP.Port = port
 		htpasswdPath := test.MakeHtpasswdFile()
 		defer os.Remove(htpasswdPath)
-		conf.Storage. = true
 
+		conf.HTTP.Auth = &config.AuthConfig{
+			HTPasswd: config.AuthHTPasswd{
+				Path: htpasswdPath,
+			},
+		}
+		conf.AccessControl = &config.AccessControlConfig{
+			Repositories: config.Repositories{
+				AuthorizationAllRepos: config.PolicyGroup{
+					Policies: []config.Policy{
+						{
+							Users:   []string{},
+							Actions: []string{},
+						},
+					},
+					DefaultPolicy: []string{},
+				},
+			},
+			AdminPolicy: config.Policy{
+				Users:   []string{},
+				Actions: []string{},
+			},
+		}
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		err = test.CopyFiles("../../test/data", dir)
+		dir := t.TempDir()
+		err := test.CopyFiles("../../test/data", dir)
 		if err != nil {
 			panic(err)
 		}
@@ -2220,7 +2075,7 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 		}, DefaultPolicy: []string{}}
 
 		// get manifest should get 200 now
-		resp, err = resty.R().
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
 			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
 		So(err, ShouldBeNil)
 		So(resp, ShouldNotBeNil)
@@ -2228,15 +2083,12 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 
 		manifestBlob := resp.Body()
 
-
 		// put manifest should get 403 without create perm
-		resp, err = resty.R().SetBody(manifestBlob).
-			Put(baseURL + "/v2/zot-test/manifests/0.0.1")
+		resp, err = resty.R().SetBasicAuth(username, passphrase).SetBody(manifestBlob).
+			Put(baseURL + "/v2/zot-test/manifests/0.0.2")
 		So(err, ShouldBeNil)
 		So(resp, ShouldNotBeNil)
-
-		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
-
+		So(resp.StatusCode(), ShouldEqual, http.StatusForbidden)
 
 		// add create perm on repo
 		conf.AccessControl.Repositories["zot-test"].Policies[0].Actions =
@@ -2499,12 +2351,7 @@ func TestHTTPReadOnly(t *testing.T) {
 					},
 				}
 				ctlr := api.NewController(conf)
-				dir, err := ioutil.TempDir("", "oci-repo-test")
-				if err != nil {
-					panic(err)
-				}
-				defer os.RemoveAll(dir)
-				ctlr.Config.Storage.RootDirectory = dir
+				ctlr.Config.Storage.RootDirectory = t.TempDir()
 
 				go startServer(ctlr)
 				defer stopServer(ctlr)
@@ -2516,7 +2363,7 @@ func TestHTTPReadOnly(t *testing.T) {
 				So(resp.StatusCode(), ShouldEqual, http.StatusOK)
 
 				// with creds, any modifications should still fail on read-only mode
-				resp, err = resty.R().SetBasicAuth(user, password).
+				resp, err := resty.R().SetBasicAuth(user, password).
 					Post(baseURL + "/v2/" + AuthorizedNamespace + "/blobs/uploads/")
 				So(err, ShouldBeNil)
 				So(resp, ShouldNotBeNil)
@@ -2550,16 +2397,12 @@ func TestCrossRepoMount(t *testing.T) {
 
 		ctlr := api.NewController(conf)
 
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
+		dir := t.TempDir()
 
-		err = test.CopyFiles("../../test/data", dir)
+		err := test.CopyFiles("../../test/data", dir)
 		if err != nil {
 			panic(err)
 		}
-		defer os.RemoveAll(dir)
 		ctlr.Config.Storage.RootDirectory = dir
 
 		go startServer(ctlr)
@@ -2705,7 +2548,7 @@ func TestCrossRepoMount(t *testing.T) {
 			SetBasicAuth(username, passphrase).SetQueryParams(params).
 			Post(baseURL + "/v2/zot-mount-test/blobs/uploads/")
 		So(err, ShouldBeNil)
-		So(postResponse.StatusCode(), ShouldEqual, http.StatusMethodNotAllowed)
+		So(postResponse.StatusCode(), ShouldEqual, http.StatusAccepted)
 
 		params = make(map[string]string)
 		params["from"] = "zot-cve-test"
@@ -2734,16 +2577,12 @@ func TestCrossRepoMount(t *testing.T) {
 
 		ctlr := api.NewController(conf)
 
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
+		dir := t.TempDir()
 
-		err = test.CopyFiles("../../test/data", dir)
+		err := test.CopyFiles("../../test/data", dir)
 		if err != nil {
 			panic(err)
 		}
-		defer os.RemoveAll(dir)
 
 		ctlr.Config.Storage.RootDirectory = dir
 		ctlr.Config.Storage.Dedupe = false
@@ -2876,32 +2715,9 @@ func TestParallelRequests(t *testing.T) {
 
 	ctlr := api.NewController(conf)
 
-	dir, err := ioutil.TempDir("", "oci-repo-test")
-	if err != nil {
-		panic(err)
-	}
-
-	t.Cleanup(func() {
-		os.RemoveAll(dir)
-	})
-
-	firstSubDir, err := ioutil.TempDir("", "oci-sub-dir")
-	if err != nil {
-		panic(err)
-	}
-
-	t.Cleanup(func() {
-		os.RemoveAll(firstSubDir)
-	})
-
-	secondSubDir, err := ioutil.TempDir("", "oci-sub-dir")
-	if err != nil {
-		panic(err)
-	}
-
-	t.Cleanup(func() {
-		os.RemoveAll(secondSubDir)
-	})
+	dir := t.TempDir()
+	firstSubDir := t.TempDir()
+	secondSubDir := t.TempDir()
 
 	subPaths := make(map[string]config.StorageConfig)
 
@@ -3119,22 +2935,14 @@ func TestHardLink(t *testing.T) {
 
 		ctlr := api.NewController(conf)
 
-		dir, err := ioutil.TempDir("", "hard-link-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
+		dir := t.TempDir()
 
-		err = os.Chmod(dir, 0o400)
+		err := os.Chmod(dir, 0o400)
 		if err != nil {
 			panic(err)
 		}
 
-		subDir, err := ioutil.TempDir("", "sub-hardlink-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(subDir)
+		subDir := t.TempDir()
 
 		err = os.Chmod(subDir, 0o400)
 		if err != nil {
@@ -3175,11 +2983,7 @@ func TestImageSignatures(t *testing.T) {
 		conf.HTTP.Port = port
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
+		dir := t.TempDir()
 		ctlr.Config.Storage.RootDirectory = dir
 		go func(controller *api.Controller) {
 			// this blocks
@@ -3275,9 +3079,7 @@ func TestImageSignatures(t *testing.T) {
 			cwd, err := os.Getwd()
 			So(err, ShouldBeNil)
 			defer func() { _ = os.Chdir(cwd) }()
-			tdir, err := ioutil.TempDir("", "cosign")
-			So(err, ShouldBeNil)
-			defer os.RemoveAll(tdir)
+			tdir := t.TempDir()
 			_ = os.Chdir(tdir)
 
 			// generate a keypair
@@ -3286,7 +3088,7 @@ func TestImageSignatures(t *testing.T) {
 			So(err, ShouldBeNil)
 
 			// sign the image
-			err = sign.SignCmd(context.TODO(),
+			err = sign.SignCmd(&options.RootOptions{Verbose: true, Timeout: 1 * time.Minute},
 				sign.KeyOpts{KeyRef: path.Join(tdir, "cosign.key"), PassFunc: generate.GetPass},
 				options.RegistryOptions{AllowInsecure: true},
 				map[string]interface{}{"tag": "1.0"},
@@ -3361,9 +3163,7 @@ func TestImageSignatures(t *testing.T) {
 			cwd, err := os.Getwd()
 			So(err, ShouldBeNil)
 			defer func() { _ = os.Chdir(cwd) }()
-			tdir, err := ioutil.TempDir("", "notation")
-			So(err, ShouldBeNil)
-			defer os.RemoveAll(tdir)
+			tdir := t.TempDir()
 			_ = os.Chdir(tdir)
 
 			// "notation" (notaryv2) doesn't yet support exported apis, so use the binary instead
@@ -3514,12 +3314,7 @@ func TestRouteFailures(t *testing.T) {
 		conf.HTTP.Port = port
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
-		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
 		ctlr.Config.Storage.Commit = true
 
 		go startServer(ctlr)
@@ -3942,7 +3737,7 @@ func TestRouteFailures(t *testing.T) {
 			resp = response.Result()
 			defer resp.Body.Close()
 			So(resp, ShouldNotBeNil)
-			So(resp.StatusCode, ShouldEqual, http.StatusMethodNotAllowed)
+			So(resp.StatusCode, ShouldEqual, http.StatusAccepted)
 		})
 
 		Convey("Get blob upload", func() {
@@ -4101,11 +3896,7 @@ func TestStorageCommit(t *testing.T) {
 		conf.HTTP.Port = port
 
 		ctlr := api.NewController(conf)
-		dir, err := ioutil.TempDir("", "oci-repo-test")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(dir)
+		dir := t.TempDir()
 		ctlr.Config.Storage.RootDirectory = dir
 		ctlr.Config.Storage.Commit = true
 
