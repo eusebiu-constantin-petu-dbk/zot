@@ -17,11 +17,11 @@ build:
     make binary
   build_only: true
 
-zot:
+"${{REPO_NAME:zot}}":
   from:
     type: docker
     url: docker://centos:latest
   import:
-    - ${{PWD}}/bin/zot
+    - ${{PWD}}/bin/zot-linux-amd64
   run: |
-    cp /stacker/zot /usr/bin/zot
+    cp /stacker/zot-linux-amd64 /usr/bin/zot

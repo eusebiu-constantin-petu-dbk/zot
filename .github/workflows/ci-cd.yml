@@ -101,6 +101,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build zot container image with stacker
+        uses: project-stacker/stacker-build-push-action@main
+        with:
+          stackerfile: 'stacker.yaml'
+          # stacker will fail if container name contains path separators
+          #substitute: REPO_NAME=${{ github.repository }}-${{ matrix.os }}-${{ matrix.arch }}
+          substitute: REPO_NAME=peusebiu-zot-${{ matrix.os }}-${{ matrix.arch }}
+          url: docker://ghcr.io
+          tags: ${{ github.event.release.tag_name }} latest
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build zot container image
         uses: docker/build-push-action@v2
         with:
