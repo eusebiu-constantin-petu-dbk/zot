@@ -107,8 +107,8 @@ jobs:
           stackerfile: 'stacker.yaml'
           # stacker will fail if container name contains path separators
           #substitute: REPO_NAME=${{ github.repository }}-${{ matrix.os }}-${{ matrix.arch }}
-          substitutes: REPO_NAME=peusebiu-zot-${{ matrix.os }}-${{ matrix.arch }} COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }}
-          url: docker://ghcr.io
+          substitutes: COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }} OS=${{ matrix.os }} ARCH=${{ matrix.arch }}
+          url: docker://ghcr.io/peusebiu/
           tags: ${{ github.event.release.tag_name }} latest
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
