@@ -2,7 +2,7 @@ name: "Clustering test"
 on:
   push:
     branches:
-      - main
+      - zb-perf-tests
   pull_request:
     branches: [main]
   release:
