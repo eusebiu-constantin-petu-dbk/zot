@@ -19,7 +19,6 @@
         "ReadOnly": false
     },
     "log": {
-        "level": "debug",
-        "output": "/dev/null"
+        "level": "debug"
     }
 }
