@@ -101,65 +101,42 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build zot container image with stacker
+      - name: Build and push zot container image
         uses: project-stacker/stacker-build-push-action@main
         with:
           stackerfile: 'stacker.yaml'
-          # stacker will fail if container name contains path separators
-          #substitute: REPO_NAME=${{ github.repository }}-${{ matrix.os }}-${{ matrix.arch }}
-          substitutes: COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }} OS=${{ matrix.os }} ARCH=${{ matrix.arch }}
-          url: docker://ghcr.io/peusebiu/
+          substitutes: COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }} OS=${{ matrix.os }} ARCH=${{ matrix.arch }} REPO_NAME=zot-${{ matrix.os }}-${{ matrix.arch }}
+          url: docker://ghcr.io/${{ github.repository_owner }}
           tags: ${{ github.event.release.tag_name }} latest
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build zot container image
-        uses: docker/build-push-action@v2
+      - name: Build and push zot-minimal container image
+        uses: project-stacker/stacker-build-push-action@main
         with:
-          build-args: |
-            COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }}
-            OS=${{ matrix.os }}
-            ARCH=${{ matrix.arch }}
-          push: true
-          file: Dockerfile
-          tags: |
-            ghcr.io/${{ github.repository }}-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            ghcr.io/${{ github.repository }}-${{ matrix.os }}-${{ matrix.arch }}:latest
-      - name: Build zot-minimal container image
-        uses: docker/build-push-action@v2
+          stackerfile: 'stacker.yaml'
+          substitutes: COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }} OS=${{ matrix.os }} ARCH=${{ matrix.arch }} EXT=-minimal REPO_NAME=zot-minimal-${{ matrix.os }}-${{ matrix.arch }}
+          url: docker://ghcr.io/${{ github.repository_owner }}
+          tags: ${{ github.event.release.tag_name }} latest
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push zot-exporter container image
+        uses: project-stacker/stacker-build-push-action@main
         with:
-          build-args: |
-            COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }}
-            OS=${{ matrix.os }}
-            ARCH=${{ matrix.arch }}
-          push: true
-          file: Dockerfile-minimal
-          tags: |
-            ghcr.io/${{ github.repository }}-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            ghcr.io/${{ github.repository }}-minimal-${{ matrix.os }}-${{ matrix.arch }}:latest
-      - name: Build zot-exporter container image
-        uses: docker/build-push-action@v2
+          stackerfile: 'stacker-zxp.yaml'
+          substitutes: COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }} OS=${{ matrix.os }} ARCH=${{ matrix.arch }} REPO_NAME=zxp-${{ matrix.os }}-${{ matrix.arch }}
+          url: docker://ghcr.io/${{ github.repository_owner }}
+          tags: ${{ github.event.release.tag_name }} latest
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push zb container image
+        uses: project-stacker/stacker-build-push-action@main
         with:
-          build-args: |
-            COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }}
-            OS=${{ matrix.os }}
-            ARCH=${{ matrix.arch }}
-          push: true
-          file: Dockerfile-zxp
-          tags: |
-            ghcr.io/${{ github.repository }}-zxp-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            ghcr.io/${{ github.repository }}-zxp-${{ matrix.os }}-${{ matrix.arch }}:latest
-      - name: Build zb container image
-        uses: docker/build-push-action@v2
-        with:
-          build-args: |
-            COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }}
-            OS=${{ matrix.os }}
-            ARCH=${{ matrix.arch }}
-          push: true
-          file: Dockerfile-zb
-          tags: |
-            ghcr.io/${{ github.repository }}-zb-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            ghcr.io/${{ github.repository }}-zb-${{ matrix.os }}-${{ matrix.arch }}:latest
+          stackerfile: 'stacker-zb.yaml'
+          substitutes: COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }} OS=${{ matrix.os }} ARCH=${{ matrix.arch }} REPO_NAME=zb-${{ matrix.os }}-${{ matrix.arch }}
+          url: docker://ghcr.io/${{ github.repository_owner }}
+          tags: ${{ github.event.release.tag_name }} latest
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
