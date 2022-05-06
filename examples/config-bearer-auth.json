@@ -10,7 +10,8 @@
       "bearer": {
         "realm": "https://auth.myreg.io/auth/token",
         "service": "myauth",
-        "cert": "/etc/zot/auth.crt"
+        "cert": "/etc/zot/auth.crt",
+        "server": "server"
       }
     }
   },

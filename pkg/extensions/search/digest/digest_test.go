@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opencontainers/go-digest"
+	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	. "github.com/smartystreets/goconvey/convey"
 	"gopkg.in/resty.v1"
 	"zotregistry.io/zot/pkg/api"
@@ -109,19 +111,36 @@ func testSetup() error {
 func TestDigestInfo(t *testing.T) {
 	Convey("Test image tag", t, func() {
 		// Search by manifest digest
-		imageTags, err := digestInfo.GetImageTagsByDigest("zot-cve-test", "63a795ca")
+		var index ispec.Index
+		var manifestDigest digest.Digest
+		for _, manifest := range index.Manifests {
+			manifestDigest = manifest.Digest
+
+			buf := ioutil.ReadAll()
+
+			var m ispec.Manifest
+
+			configDigest := m.Config.Digest
+
+			for _, layer := range m.Layers {
+				layerDigest := layer.Digest
+			}
+
+		}
+
+		imageTags, err := digestInfo.GetImageTagsByDigest("zot-cve-test", manifestDigest.String())
 		So(err, ShouldBeNil)
 		So(len(imageTags), ShouldEqual, 1)
 		So(*imageTags[0], ShouldEqual, "0.0.1")
 
 		// Search by config digest
-		imageTags, err = digestInfo.GetImageTagsByDigest("zot-test", "adf3bb6c")
+		imageTags, err = digestInfo.GetImageTagsByDigest("zot-test", configDigest.String())
 		So(err, ShouldBeNil)
 		So(len(imageTags), ShouldEqual, 1)
 		So(*imageTags[0], ShouldEqual, "0.0.1")
 
 		// Search by layer digest
-		imageTags, err = digestInfo.GetImageTagsByDigest("zot-cve-test", "7a0437f0")
+		imageTags, err = digestInfo.GetImageTagsByDigest("zot-cve-test", layerDigest.String())
 		So(err, ShouldBeNil)
 		So(len(imageTags), ShouldEqual, 1)
 		So(*imageTags[0], ShouldEqual, "0.0.1")
