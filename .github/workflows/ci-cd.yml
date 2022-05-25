@@ -104,6 +104,11 @@ jobs:
       matrix:
         os: [linux, darwin]
         arch: [amd64, arm64]
+        include:
+          - arch: arm64
+            base-image-name: arm64v8/alpine
+          - arch: amd64
+            base-image-name: alpine
     steps:
       - name: Check out the repo
         uses: actions/checkout@v2
@@ -122,6 +127,7 @@ jobs:
             OS=${{ matrix.os }}
             ARCH=${{ matrix.arch }}
             REPO_NAME=zot-${{ matrix.os }}-${{ matrix.arch }}
+            BASE_IMAGE_NAME=${{ matrix.base-image-name }}
           url: docker://ghcr.io/${{ github.repository_owner }}
           tags: ${{ github.event.release.tag_name }} latest
           username: ${{ github.actor }}
@@ -130,6 +136,12 @@ jobs:
         run: |
           if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
             docker run -d ghcr.io/${{ github.repository_owner }}/zot-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            curl --connect-timeout 5 \
+              --max-time 10 \
+              --retry 6 \
+              --retry-max-time 60 \
+              'http://localhost:5000/v2/'
+            docker kill $(docker ps -q)
           fi
         env:
           OS: ${{ matrix.os }}
@@ -138,6 +150,12 @@ jobs:
         run: |
           if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
             podman run -d ghcr.io/${{ github.repository_owner }}/zot-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            curl --connect-timeout 5 \
+              --max-time 10 \
+              --retry 6 \
+              --retry-max-time 60 \
+              'http://localhost:5000/v2/'
+            podman kill $(podman ps -q)
           fi
         env:
           OS: ${{ matrix.os }}
@@ -152,6 +170,7 @@ jobs:
             ARCH=${{ matrix.arch }}
             EXT=-minimal
             REPO_NAME=zot-minimal-${{ matrix.os }}-${{ matrix.arch }}
+            BASE_IMAGE_NAME=${{ matrix.base-image-name }}
           url: docker://ghcr.io/${{ github.repository_owner }}
           tags: ${{ github.event.release.tag_name }} latest
           username: ${{ github.actor }}
@@ -160,6 +179,12 @@ jobs:
         run: |
           if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
             docker run -d ghcr.io/${{ github.repository_owner }}/zot-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            curl --connect-timeout 5 \
+              --max-time 10 \
+              --retry 6 \
+              --retry-max-time 60 \
+              'http://localhost:5000/v2/'
+            docker kill $(docker ps -q)
           fi
         env:
           OS: ${{ matrix.os }}
@@ -168,6 +193,12 @@ jobs:
         run: |
           if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
             podman run -d ghcr.io/${{ github.repository_owner }}/zot-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            curl --connect-timeout 5 \
+              --max-time 10 \
+              --retry 6 \
+              --retry-max-time 60 \
+              'http://localhost:5000/v2/'
+            podman kill $(docker ps -q)
           fi
         env:
           OS: ${{ matrix.os }}
@@ -181,6 +212,7 @@ jobs:
             OS=${{ matrix.os }}
             ARCH=${{ matrix.arch }}
             REPO_NAME=zxp-${{ matrix.os }}-${{ matrix.arch }}
+            BASE_IMAGE_NAME=${{ matrix.base-image-name }}
           url: docker://ghcr.io/${{ github.repository_owner }}
           tags: ${{ github.event.release.tag_name }} latest
           username: ${{ github.actor }}
@@ -210,6 +242,7 @@ jobs:
             OS=${{ matrix.os }}
             ARCH=${{ matrix.arch }}
             REPO_NAME=zb-${{ matrix.os }}-${{ matrix.arch }}
+            BASE_IMAGE_NAME=${{ matrix.base-image-name }}
           url: docker://ghcr.io/${{ github.repository_owner }}
           tags: ${{ github.event.release.tag_name }} latest
           username: ${{ github.actor }}
