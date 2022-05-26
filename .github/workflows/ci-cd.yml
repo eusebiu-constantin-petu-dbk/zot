@@ -140,6 +140,7 @@ jobs:
               --max-time 10 \
               --retry 12 \
               --retry-max-time 360 \
+              --retry-connrefused \
               'http://localhost:5000/v2/'
             docker kill $(docker ps -q)
           fi
@@ -154,6 +155,7 @@ jobs:
               --max-time 10 \
               --retry 12 \
               --retry-max-time 360 \
+              --retry-connrefused \
               'http://localhost:5000/v2/'
             podman kill $(podman ps -q)
           fi
