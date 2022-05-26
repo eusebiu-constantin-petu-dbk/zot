@@ -106,7 +106,7 @@ jobs:
         arch: [amd64, arm64]
         include:
           - arch: arm64
-            base-image-name: arm64v8/alpine
+            base-image-name: alpine
           - arch: amd64
             base-image-name: alpine
     steps:
