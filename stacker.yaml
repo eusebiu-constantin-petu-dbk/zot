@@ -31,12 +31,12 @@ build:
     EOF
 
     cat config.json
-    mkdir -p /zotcopy/binary
-    mkdir -p /zotcopy/cert
-    mkdir -p /zotcopy/config
-    cp /go/src/github.com/project-zot/zot/bin/zot-${{OS}}-${{ARCH}}${{EXT:}} /zotcopy/binary
-    cp /go/src/github.com/project-zot/zot/config.json /zotcopy/cert
-    cp /etc/ssl/certs/ca-certificates.crt /zotcopy/config
+    mkdir -p /zotcopy/build/binary
+    mkdir -p /zotcopy/build/cert
+    mkdir -p /zotcopy/build/config
+    cp /go/src/github.com/project-zot/zot/bin/zot-${{OS}}-${{ARCH}}${{EXT:}} /zotcopy/build/binary
+    cp /go/src/github.com/project-zot/zot/config.json /zotcopy/build/config
+    cp /etc/ssl/certs/ca-certificates.crt /zotcopy/build/cert
   build_only: true
 
 "${{REPO_NAME:zot}}":
@@ -44,11 +44,11 @@ build:
     type: docker
     url: docker://gcr.io/distroless/base
   overlay_dirs:
-    - source: ./binary
+    - source: ./build/binary
       dest: /usr/local/bin
-    - source: ./cert
+    - source: ./build/cert
       dest: /etc/ssl/certs
-    - source: ./config
+    - source: ./build/config
       dest: /etc/zot
   entrypoint:
     - /usr/local/bin/zot-${{OS}}-${{ARCH}}${{EXT:}}
