@@ -106,7 +106,7 @@ jobs:
         arch: [amd64, arm64]
         include:
           - arch: arm64
-            base-image-name: alpine
+            base-image-name: arm64v8/alpine
           - arch: amd64
             base-image-name: alpine
     steps:
@@ -183,11 +183,12 @@ jobs:
         run: |
           if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
             docker run -d -p 5000:5000 ghcr.io/${{ github.repository_owner }}/zot-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            sleep 5
+            sleep 2
             curl --connect-timeout 5 \
               --max-time 10 \
-              --retry 6 \
-              --retry-max-time 60 \
+              --retry 12 \
+              --retry-max-time 360 \
+              --retry-connrefused \
               'http://localhost:5000/v2/'
             docker kill $(docker ps -q)
           fi
@@ -198,11 +199,12 @@ jobs:
         run: |
           if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
             podman run -d -p 5000:5000 ghcr.io/${{ github.repository_owner }}/zot-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            sleep 5
+            sleep 2
             curl --connect-timeout 5 \
               --max-time 10 \
-              --retry 6 \
-              --retry-max-time 60 \
+              --retry 12 \
+              --retry-max-time 360 \
+              --retry-connrefused \
               'http://localhost:5000/v2/'
             podman kill --all
           fi
