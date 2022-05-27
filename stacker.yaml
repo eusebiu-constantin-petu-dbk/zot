@@ -49,7 +49,7 @@ build:
     - source: ./cert
       dest: /etc/ssl/certs
     - source: ./config
-      dest: /etc/zot/config
+      dest: /etc/zot
   entrypoint:
     - /usr/local/bin/zot-${{OS}}-${{ARCH}}${{EXT:}}
   volumes:
