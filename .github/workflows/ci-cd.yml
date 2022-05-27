@@ -136,7 +136,7 @@ jobs:
         run: |
           if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
             docker run -d -p 5000:5000 ghcr.io/${{ github.repository_owner }}/zot-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            sleep 60
+            sleep 5
             curl --connect-timeout 5 \
               --max-time 10 \
               --retry 12 \
@@ -152,7 +152,7 @@ jobs:
         run: |
           if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
             podman run -d -p 5000:5000 ghcr.io/${{ github.repository_owner }}/zot-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            sleep 60
+            sleep 5
             curl --connect-timeout 5 \
               --max-time 10 \
               --retry 12 \
@@ -183,6 +183,7 @@ jobs:
         run: |
           if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
             docker run -d -p 5000:5000 ghcr.io/${{ github.repository_owner }}/zot-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            sleep 5
             curl --connect-timeout 5 \
               --max-time 10 \
               --retry 6 \
@@ -197,6 +198,7 @@ jobs:
         run: |
           if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
             podman run -d -p 5000:5000 ghcr.io/${{ github.repository_owner }}/zot-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            sleep 5
             curl --connect-timeout 5 \
               --max-time 10 \
               --retry 6 \
