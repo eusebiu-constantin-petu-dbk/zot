@@ -104,11 +104,6 @@ jobs:
       matrix:
         os: [linux, darwin]
         arch: [amd64, arm64]
-        include:
-          - arch: arm64
-            base-image-name: arm64v8/alpine
-          - arch: amd64
-            base-image-name: alpine
     steps:
       - name: Check out the repo
         uses: actions/checkout@v2
@@ -127,7 +122,6 @@ jobs:
             OS=${{ matrix.os }}
             ARCH=${{ matrix.arch }}
             REPO_NAME=zot-${{ matrix.os }}-${{ matrix.arch }}
-            BASE_IMAGE_NAME=${{ matrix.base-image-name }}
           url: docker://ghcr.io/${{ github.repository_owner }}
           tags: ${{ github.event.release.tag_name }} latest
           username: ${{ github.actor }}
@@ -174,7 +168,6 @@ jobs:
             ARCH=${{ matrix.arch }}
             EXT=-minimal
             REPO_NAME=zot-minimal-${{ matrix.os }}-${{ matrix.arch }}
-            BASE_IMAGE_NAME=${{ matrix.base-image-name }}
           url: docker://ghcr.io/${{ github.repository_owner }}
           tags: ${{ github.event.release.tag_name }} latest
           username: ${{ github.actor }}
@@ -220,7 +213,6 @@ jobs:
             OS=${{ matrix.os }}
             ARCH=${{ matrix.arch }}
             REPO_NAME=zxp-${{ matrix.os }}-${{ matrix.arch }}
-            BASE_IMAGE_NAME=${{ matrix.base-image-name }}
           url: docker://ghcr.io/${{ github.repository_owner }}
           tags: ${{ github.event.release.tag_name }} latest
           username: ${{ github.actor }}
@@ -250,7 +242,6 @@ jobs:
             OS=${{ matrix.os }}
             ARCH=${{ matrix.arch }}
             REPO_NAME=zb-${{ matrix.os }}-${{ matrix.arch }}
-            BASE_IMAGE_NAME=${{ matrix.base-image-name }}
           url: docker://ghcr.io/${{ github.repository_owner }}
           tags: ${{ github.event.release.tag_name }} latest
           username: ${{ github.actor }}
