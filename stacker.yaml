@@ -14,7 +14,7 @@ build:
     cd /go/src/github.com/project-zot
     git clone /zotcopy zot
     cd /go/src/github.com/project-zot/zot
-    make COMMIT=${{COMMIT}} OS=${{OS}} ARCH=${{ARCH}} binary${{EXT:}}
+    make COMMIT=${{COMMIT}} OS=${{OS}} ARCH=${{ARCH}} clean binary${{EXT:}}
     cat > config.json << EOF
     {
       "storage":{
@@ -57,5 +57,3 @@ build:
   cmd:
     - serve
     - /etc/zot/config.json
-
-
