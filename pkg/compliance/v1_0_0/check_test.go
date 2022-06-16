@@ -2,17 +2,17 @@ package v1_0_0_test
 
 import (
 	"context"
-	"fmt"
-	"io/ioutil"
+	"net/http"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/anuvu/zot/pkg/api"
-	"github.com/anuvu/zot/pkg/compliance"
-	"github.com/anuvu/zot/pkg/compliance/v1_0_0"
-	"github.com/phayes/freeport"
 	"gopkg.in/resty.v1"
+	"zotregistry.io/zot/pkg/api"
+	"zotregistry.io/zot/pkg/api/config"
+	"zotregistry.io/zot/pkg/compliance"
+	"zotregistry.io/zot/pkg/compliance/v1_0_0"
+	. "zotregistry.io/zot/pkg/test"
 )
 
 // nolint: gochecknoglobals
@@ -24,7 +24,7 @@ var (
 )
 
 func TestWorkflows(t *testing.T) {
-	ctrl, randomPort := startServer()
+	ctrl, randomPort := startServer(t)
 	defer stopServer(ctrl)
 
 	storageInfo := []string{defaultDir, firstDir, secondDir}
@@ -37,7 +37,7 @@ func TestWorkflows(t *testing.T) {
 }
 
 func TestWorkflowsOutputJSON(t *testing.T) {
-	ctrl, randomPort := startServer()
+	ctrl, randomPort := startServer(t)
 	defer stopServer(ctrl)
 
 	storageInfo := []string{defaultDir, firstDir, secondDir}
@@ -51,45 +51,29 @@ func TestWorkflowsOutputJSON(t *testing.T) {
 }
 
 // start local server on random open port.
-func startServer() (*api.Controller, string) {
-	portInt, err := freeport.GetFreePort()
-	if err != nil {
-		panic(err)
-	}
+func startServer(t *testing.T) (*api.Controller, string) {
+	t.Helper()
 
-	randomPort := fmt.Sprintf("%d", portInt)
-	fmt.Println(randomPort)
+	port := GetFreePort()
+	baseURL := GetBaseURL(port)
+	conf := config.New()
+	conf.HTTP.Address = listenAddress
+	conf.HTTP.Port = port
+	ctrl := api.NewController(conf)
 
-	config := api.NewConfig()
-	config.HTTP.Address = listenAddress
-	config.HTTP.Port = randomPort
-	ctrl := api.NewController(config)
-
-	dir, err := ioutil.TempDir("", "oci-repo-test")
-	if err != nil {
-		panic(err)
-	}
-
+	dir := t.TempDir()
 	defaultDir = dir
 
-	firstSubDir, err := ioutil.TempDir("", "oci-repo-test")
-	if err != nil {
-		panic(err)
-	}
-
+	firstSubDir := t.TempDir()
 	firstDir = firstSubDir
 
-	secondSubDir, err := ioutil.TempDir("", "oci-repo-test")
-	if err != nil {
-		panic(err)
-	}
-
+	secondSubDir := t.TempDir()
 	secondDir = secondSubDir
 
-	subPaths := make(map[string]api.StorageConfig)
+	subPaths := make(map[string]config.StorageConfig)
 
-	subPaths["/firsttest"] = api.StorageConfig{RootDirectory: firstSubDir}
-	subPaths["/secondtest"] = api.StorageConfig{RootDirectory: secondSubDir}
+	subPaths["/firsttest"] = config.StorageConfig{RootDirectory: firstSubDir}
+	subPaths["/secondtest"] = config.StorageConfig{RootDirectory: secondSubDir}
 
 	ctrl.Config.Storage.RootDirectory = dir
 
@@ -97,24 +81,22 @@ func startServer() (*api.Controller, string) {
 
 	go func() {
 		// this blocks
-		if err := ctrl.Run(); err != nil {
+		if err := ctrl.Run(context.Background()); err != nil {
 			return
 		}
 	}()
 
-	baseURL := fmt.Sprintf("http://%s:%s", listenAddress, randomPort)
-
 	for {
 		// poll until ready
 		resp, _ := resty.R().Get(baseURL)
-		if resp.StatusCode() == 404 {
+		if resp.StatusCode() == http.StatusNotFound {
 			break
 		}
 
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	return ctrl, randomPort
+	return ctrl, port
 }
 
 func stopServer(ctrl *api.Controller) {

@@ -2,20 +2,20 @@
 
 ## Fork Repository
 
-[Fork](https://github.com/anuvu/zot) the zot repository on GitHub to your personal account.
+[Fork](https://github.com/project-zot/zot) the zot repository on GitHub to your personal account.
 
 ```
 #Set golang environment
 export GOPATH=$HOME/go
-mkdir -p $GOPATH/src/github.com/anuvu
+mkdir -p $GOPATH/src/github.com/project-zot
 
 #Get code
-go get github.com/anuvu/zot
-cd $GOPATH/src/github.com/anuvu/zot
+go get github.com/project-zot/zot
+cd $GOPATH/src/github.com/project-zot/zot
 
 #Track repository under your personal account
-git config push.default nothing # Anything to avoid pushing to anuvu/zot by default
-git remote rename origin anuvu
+git config push.default nothing # Anything to avoid pushing to project-zot/zot by default
+git remote rename origin project-zot
 git remote add $USER git@github.com:$USER/zot.git
 git fetch $USER
 
@@ -44,6 +44,12 @@ For a minimal dist-spec only zot,
 make binary-minimal
 ```
 
+For a node exporter used by minimal dist-spec only zot,
+
+```
+make exporter-minimal
+```
+
 ## Using container builds (stacker)
 
 ```
@@ -62,12 +68,14 @@ make binary-container
 .
 ...
 ├── cmd/zot             # Source code contains the main logic
+├── cmd/zxp             # Source code contains the main logic for node exporter
 ├── docs                # Source code for Swagger docs
 ├── errors              # Source code for errors
 ├── examples            # Configuration examples to enable various features
 ├── pkg/api             # Source code contains the HTTP handlers
 ├── pkg/cli             # Source code that handles the commandline logic
 ├── pkg/compliance      # Source code that handles the dist-spec compliance logic
+├── pkg/exporter        # Source code used by the node exporter
 ├── pkg/extensions      # Source code that handles the feature extensions
 ├── pkg/log             # Source code that handles logging
 ├── pkg/storage         # Source code that handles image storage

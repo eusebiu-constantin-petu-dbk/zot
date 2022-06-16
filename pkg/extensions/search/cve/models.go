@@ -2,11 +2,10 @@
 package cveinfo
 
 import (
-	"time"
-
-	"github.com/anuvu/zot/pkg/log"
-	"github.com/anuvu/zot/pkg/storage"
-	config "github.com/aquasecurity/trivy/integration/config"
+	"github.com/urfave/cli/v2"
+	"zotregistry.io/zot/pkg/extensions/search/common"
+	"zotregistry.io/zot/pkg/log"
+	"zotregistry.io/zot/pkg/storage"
 )
 
 // CveInfo ...
@@ -14,14 +13,15 @@ type CveInfo struct {
 	Log                log.Logger
 	CveTrivyController CveTrivyController
 	StoreController    storage.StoreController
+	LayoutUtils        *common.OciLayoutUtils
 }
 
 type CveTrivyController struct {
-	DefaultCveConfig *config.Config
-	SubCveConfig     map[string]*config.Config
+	DefaultCveConfig *TrivyCtx
+	SubCveConfig     map[string]*TrivyCtx
 }
 
-type TagInfo struct {
-	Name      string
-	Timestamp time.Time
+type TrivyCtx struct {
+	Input string
+	Ctx   *cli.Context
 }

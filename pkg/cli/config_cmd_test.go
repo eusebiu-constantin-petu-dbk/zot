@@ -1,3 +1,4 @@
+//go:build extended
 // +build extended
 
 package cli //nolint:testpackage
@@ -5,13 +6,13 @@ package cli //nolint:testpackage
 import (
 	"bytes"
 	"io/ioutil"
+	"log"
 	"os"
 	"strings"
 	"testing"
 
-	zotErrors "github.com/anuvu/zot/errors"
-
 	. "github.com/smartystreets/goconvey/convey"
+	zotErrors "zotregistry.io/zot/errors"
 )
 
 func TestConfigCmdBasics(t *testing.T) {
@@ -22,7 +23,7 @@ func TestConfigCmdBasics(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(buff.String(), ShouldContainSubstring, "Usage")
@@ -34,7 +35,7 @@ func TestConfigCmdBasics(t *testing.T) {
 			cmd := NewConfigCommand()
 			buff := bytes.NewBufferString("")
 			cmd.SetOut(buff)
-			cmd.SetErr(ioutil.Discard)
+			cmd.SetErr(buff)
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			So(buff.String(), ShouldContainSubstring, "Usage")
@@ -49,7 +50,7 @@ func TestConfigCmdBasics(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(buff.String(), ShouldContainSubstring, "Usage")
@@ -65,7 +66,7 @@ func TestConfigCmdMain(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		_ = cmd.Execute()
 
@@ -78,6 +79,75 @@ func TestConfigCmdMain(t *testing.T) {
 		So(actualStr, ShouldContainSubstring, "https://test-url.com")
 	})
 
+	Convey("Test error on home directory", t, func() {
+		args := []string{"add", "configtest1", "https://test-url.com"}
+		file := makeConfigFile("")
+		defer os.Remove(file)
+
+		err := os.Setenv("HOME", "nonExistentDirectory")
+		if err != nil {
+			panic(err)
+		}
+
+		cmd := NewConfigCommand()
+		buff := bytes.NewBufferString("")
+		cmd.SetOut(buff)
+		cmd.SetErr(buff)
+		cmd.SetArgs(args)
+		err = cmd.Execute()
+		So(err, ShouldNotBeNil)
+
+		home, err := os.UserHomeDir()
+		if err != nil {
+			panic(err)
+		}
+		err = os.Setenv("HOME", home)
+		if err != nil {
+			log.Fatal(err)
+		}
+	})
+
+	Convey("Test error on home directory at new add config", t, func() {
+		args := []string{"add", "configtest1", "https://test-url.com"}
+		file := makeConfigFile("")
+		defer os.Remove(file)
+
+		err := os.Setenv("HOME", "nonExistentDirectory")
+		if err != nil {
+			panic(err)
+		}
+
+		cmd := NewConfigAddCommand()
+		buff := bytes.NewBufferString("")
+		cmd.SetOut(buff)
+		cmd.SetErr(buff)
+		cmd.SetArgs(args)
+		err = cmd.Execute()
+		So(err, ShouldNotBeNil)
+
+		home, err := os.UserHomeDir()
+		if err != nil {
+			panic(err)
+		}
+		err = os.Setenv("HOME", home)
+		if err != nil {
+			log.Fatal(err)
+		}
+	})
+
+	Convey("Test add config with invalid format", t, func() {
+		args := []string{"--list"}
+		configPath := makeConfigFile(`{"configs":{"_name":"configtest","url":"https://test-url.com","showspinner":false}}`)
+		defer os.Remove(configPath)
+		cmd := NewConfigCommand()
+		buff := bytes.NewBufferString("")
+		cmd.SetOut(buff)
+		cmd.SetErr(buff)
+		cmd.SetArgs(args)
+		err := cmd.Execute()
+		So(err, ShouldEqual, zotErrors.ErrCliBadConfig)
+	})
+
 	Convey("Test add config with invalid URL", t, func() {
 		args := []string{"add", "configtest1", "test..com"}
 		file := makeConfigFile("")
@@ -85,7 +155,7 @@ func TestConfigCmdMain(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(err, ShouldNotBeNil)
@@ -99,7 +169,7 @@ func TestConfigCmdMain(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(buff.String(), ShouldContainSubstring, "https://test-url.com")
@@ -112,7 +182,7 @@ func TestConfigCmdMain(t *testing.T) {
 			cmd := NewConfigCommand()
 			buff := bytes.NewBufferString("")
 			cmd.SetOut(buff)
-			cmd.SetErr(ioutil.Discard)
+			cmd.SetErr(buff)
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			So(buff.String(), ShouldContainSubstring, "https://test-url.com")
@@ -126,7 +196,7 @@ func TestConfigCmdMain(t *testing.T) {
 			cmd := NewConfigCommand()
 			buff := bytes.NewBufferString("")
 			cmd.SetOut(buff)
-			cmd.SetErr(ioutil.Discard)
+			cmd.SetErr(buff)
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			So(err, ShouldBeNil)
@@ -141,7 +211,7 @@ func TestConfigCmdMain(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(buff.String(), ShouldContainSubstring, "url = https://test-url.com")
@@ -155,7 +225,7 @@ func TestConfigCmdMain(t *testing.T) {
 			cmd := NewConfigCommand()
 			buff := bytes.NewBufferString("")
 			cmd.SetOut(buff)
-			cmd.SetErr(ioutil.Discard)
+			cmd.SetErr(buff)
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			So(buff.String(), ShouldContainSubstring, "url = https://test-url.com")
@@ -170,7 +240,7 @@ func TestConfigCmdMain(t *testing.T) {
 			cmd := NewConfigCommand()
 			buff := bytes.NewBufferString("")
 			cmd.SetOut(buff)
-			cmd.SetErr(ioutil.Discard)
+			cmd.SetErr(buff)
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			So(err, ShouldBeNil)
@@ -185,7 +255,7 @@ func TestConfigCmdMain(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(buff.String(), ShouldEqual, "https://test-url.com\n")
@@ -213,7 +283,7 @@ func TestConfigCmdMain(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(err, ShouldBeNil)
@@ -234,7 +304,7 @@ func TestConfigCmdMain(t *testing.T) {
 			cmd := NewConfigCommand()
 			buff := bytes.NewBufferString("")
 			cmd.SetOut(buff)
-			cmd.SetErr(ioutil.Discard)
+			cmd.SetErr(buff)
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			So(err, ShouldNotBeNil)
@@ -249,7 +319,7 @@ func TestConfigCmdMain(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(err, ShouldBeNil)
@@ -272,7 +342,7 @@ func TestConfigCmdMain(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(err, ShouldBeNil)
@@ -294,7 +364,7 @@ func TestConfigCmdMain(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(err, ShouldNotBeNil)
@@ -308,7 +378,7 @@ func TestConfigCmdMain(t *testing.T) {
 		cmd := NewConfigCommand()
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(err, ShouldNotBeNil)

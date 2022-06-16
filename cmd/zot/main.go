@@ -3,11 +3,11 @@ package main
 import (
 	"os"
 
-	"github.com/anuvu/zot/pkg/cli"
+	"zotregistry.io/zot/pkg/cli"
 )
 
 func main() {
-	if err := cli.NewRootCmd().Execute(); err != nil {
+	if err := cli.NewServerRootCmd().Execute(); err != nil {
 		os.Exit(1)
 	}
 }

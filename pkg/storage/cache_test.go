@@ -1,53 +1,56 @@
 package storage_test
 
 import (
-	"io/ioutil"
-	"os"
 	"path"
 	"testing"
 
-	"github.com/anuvu/zot/errors"
-	"github.com/anuvu/zot/pkg/log"
-	"github.com/anuvu/zot/pkg/storage"
 	. "github.com/smartystreets/goconvey/convey"
+	"zotregistry.io/zot/errors"
+	"zotregistry.io/zot/pkg/log"
+	"zotregistry.io/zot/pkg/storage"
 )
 
 func TestCache(t *testing.T) {
 	Convey("Make a new cache", t, func() {
-		dir, err := ioutil.TempDir("", "cache_test")
-		So(err, ShouldBeNil)
-		So(dir, ShouldNotBeEmpty)
-		defer os.RemoveAll(dir)
+		dir := t.TempDir()
 
 		log := log.NewLogger("debug", "")
 		So(log, ShouldNotBeNil)
 
-		So(storage.NewCache("/deadBEEF", "cache_test", log), ShouldBeNil)
+		So(storage.NewCache("/deadBEEF", "cache_test", true, log), ShouldBeNil)
 
-		c := storage.NewCache(dir, "cache_test", log)
-		So(c, ShouldNotBeNil)
+		cache := storage.NewCache(dir, "cache_test", true, log)
+		So(cache, ShouldNotBeNil)
 
-		v, err := c.GetBlob("key")
+		val, err := cache.GetBlob("key")
 		So(err, ShouldEqual, errors.ErrCacheMiss)
-		So(v, ShouldBeEmpty)
+		So(val, ShouldBeEmpty)
 
-		b := c.HasBlob("key", "value")
-		So(b, ShouldBeFalse)
+		exists := cache.HasBlob("key", "value")
+		So(exists, ShouldBeFalse)
 
-		err = c.PutBlob("key", path.Join(dir, "value"))
+		err = cache.PutBlob("key", path.Join(dir, "value"))
 		So(err, ShouldBeNil)
 
-		b = c.HasBlob("key", "value")
-		So(b, ShouldBeTrue)
+		err = cache.PutBlob("key", "value")
+		So(err, ShouldNotBeNil)
 
-		v, err = c.GetBlob("key")
+		exists = cache.HasBlob("key", "value")
+		So(exists, ShouldBeTrue)
+
+		val, err = cache.GetBlob("key")
 		So(err, ShouldBeNil)
-		So(v, ShouldNotBeEmpty)
+		So(val, ShouldNotBeEmpty)
 
-		err = c.DeleteBlob("bogusKey", "bogusValue")
+		err = cache.DeleteBlob("bogusKey", "bogusValue")
 		So(err, ShouldEqual, errors.ErrCacheMiss)
 
-		err = c.DeleteBlob("key", "bogusValue")
+		err = cache.DeleteBlob("key", "bogusValue")
 		So(err, ShouldBeNil)
+
+		// try to insert empty path
+		err = cache.PutBlob("key", "")
+		So(err, ShouldNotBeNil)
+		So(err, ShouldEqual, errors.ErrEmptyValue)
 	})
 }

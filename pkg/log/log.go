@@ -1,13 +1,16 @@
 package log
 
 import (
-	"net/http"
 	"os"
+	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
 )
+
+const defaultPerms = 0o0600
 
 // Logger extends zerolog's Logger.
 type Logger struct {
@@ -18,10 +21,10 @@ func (l Logger) Println(v ...interface{}) {
 	l.Logger.Error().Msg("panic recovered")
 }
 
-func NewLogger(level string, output string) Logger {
+func NewLogger(level, output string) Logger {
 	zerolog.TimeFieldFormat = time.RFC3339Nano
-	lvl, err := zerolog.ParseLevel(level)
 
+	lvl, err := zerolog.ParseLevel(level)
 	if err != nil {
 		panic(err)
 	}
@@ -33,84 +36,56 @@ func NewLogger(level string, output string) Logger {
 	if output == "" {
 		log = zerolog.New(os.Stdout)
 	} else {
-		file, err := os.OpenFile(output, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+		file, err := os.OpenFile(output, os.O_APPEND|os.O_WRONLY|os.O_CREATE, defaultPerms)
 		if err != nil {
 			panic(err)
 		}
 		log = zerolog.New(file)
 	}
 
-	return Logger{Logger: log.With().Caller().Timestamp().Logger()}
+	return Logger{Logger: log.Hook(goroutineHook{}).With().Caller().Timestamp().Logger()}
 }
 
-type statusWriter struct {
-	http.ResponseWriter
-	status int
-	length int
-}
+func NewAuditLogger(level, audit string) *Logger {
+	zerolog.TimeFieldFormat = time.RFC3339Nano
 
-func (w *statusWriter) WriteHeader(status int) {
-	w.status = status
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *statusWriter) Write(b []byte) (int, error) {
-	if w.status == 0 {
-		w.status = 200
+	lvl, err := zerolog.ParseLevel(level)
+	if err != nil {
+		panic(err)
 	}
 
-	n, err := w.ResponseWriter.Write(b)
-	w.length += n
+	zerolog.SetGlobalLevel(lvl)
 
-	return n, err
+	var auditLog zerolog.Logger
+
+	auditFile, err := os.OpenFile(audit, os.O_APPEND|os.O_WRONLY|os.O_CREATE, defaultPerms)
+	if err != nil {
+		panic(err)
+	}
+
+	auditLog = zerolog.New(auditFile)
+
+	return &Logger{Logger: auditLog.With().Timestamp().Logger()}
 }
 
-func SessionLogger(log Logger) mux.MiddlewareFunc {
-	l := log.With().Str("module", "http").Logger()
+// GoroutineID adds goroutine-id to logs to help debug concurrency issues.
+func GoroutineID() int {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
 
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Start timer
-			start := time.Now()
-			path := r.URL.Path
-			raw := r.URL.RawQuery
+	id, err := strconv.Atoi(idField)
+	if err != nil {
+		return -1
+	}
 
-			sw := statusWriter{ResponseWriter: w}
+	return id
+}
 
-			// Process request
-			next.ServeHTTP(&sw, r)
+type goroutineHook struct{}
 
-			// Stop timer
-			end := time.Now()
-			latency := end.Sub(start)
-			if latency > time.Minute {
-				// Truncate in a golang < 1.8 safe way
-				latency -= latency % time.Second
-			}
-			clientIP := r.RemoteAddr
-			method := r.Method
-			headers := map[string][]string{}
-			for key, value := range r.Header {
-				if key == "Authorization" { // anonymize from logs
-					value = []string{"******"}
-				}
-				headers[key] = value
-			}
-			statusCode := sw.status
-			bodySize := sw.length
-			if raw != "" {
-				path = path + "?" + raw
-			}
-
-			l.Info().
-				Str("clientIP", clientIP).
-				Str("method", method).
-				Str("path", path).
-				Int("statusCode", statusCode).
-				Str("latency", latency.String()).
-				Int("bodySize", bodySize).
-				Interface("headers", headers).
-				Msg("HTTP API")
-		})
+func (h goroutineHook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
+	if level != zerolog.NoLevel {
+		e.Int("goroutine", GoroutineID())
 	}
 }

@@ -1,11 +1,14 @@
 # ---
 # Stage 1: Install certs, build binary, create default config file
 # ---
-FROM docker.io/golang:1.15.3 AS builder
-RUN mkdir -p /go/src/github.com/anuvu/zot
-WORKDIR /go/src/github.com/anuvu/zot
+FROM ghcr.io/project-zot/golang:1.18 AS builder
+ARG COMMIT
+ARG OS
+ARG ARCH
+RUN mkdir -p /go/src/github.com/project-zot/zot
+WORKDIR /go/src/github.com/project-zot/zot
 COPY . .
-RUN CGO_ENABLED=0 make clean binary
+RUN make COMMIT=$COMMIT OS=$OS ARCH=$ARCH clean binary
 RUN echo '{\n\
     "storage": {\n\
         "rootDirectory": "/var/lib/registry"\n\
@@ -22,11 +25,13 @@ RUN echo '{\n\
 # ---
 # Stage 2: Final image with nothing but certs, binary, and default config file
 # ---
-FROM scratch AS final
+FROM gcr.io/distroless/base AS final
+ARG OS
+ARG ARCH
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-COPY --from=builder /go/src/github.com/anuvu/zot/bin/zot /zot
-COPY --from=builder /go/src/github.com/anuvu/zot/config.json /etc/zot/config.json
-ENTRYPOINT ["/zot"]
+COPY --from=builder /go/src/github.com/project-zot/zot/bin/zot-$OS-$ARCH /usr/bin/zot
+COPY --from=builder /go/src/github.com/project-zot/zot/config.json /etc/zot/config.json
+ENTRYPOINT ["/usr/bin/zot"]
 EXPOSE 5000
 VOLUME ["/var/lib/registry"]
 CMD ["serve", "/etc/zot/config.json"]

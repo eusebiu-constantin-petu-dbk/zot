@@ -1,3 +1,4 @@
+//go:build extended
 // +build extended
 
 package cli
@@ -11,14 +12,15 @@ import (
 	"sync"
 	"time"
 
-	zotErrors "github.com/anuvu/zot/errors"
 	"github.com/briandowns/spinner"
+	zotErrors "zotregistry.io/zot/errors"
 )
 
 func getImageSearchers() []searcher {
 	searchers := []searcher{
 		new(allImagesSearcher),
 		new(imageByNameSearcher),
+		new(imagesByDigestSearcher),
 	}
 
 	return searchers
@@ -59,6 +61,7 @@ type searchConfig struct {
 	outputFormat  *string
 	verifyTLS     *bool
 	fixedFlag     *bool
+	verbose       *bool
 	resultWriter  io.Writer
 	spinner       spinnerState
 }
@@ -81,7 +84,7 @@ func (search allImagesSearcher) search(config searchConfig) (bool, error) {
 	go config.searchService.getAllImages(ctx, config, username, password, imageErr, &wg)
 	wg.Add(1)
 
-	var errCh chan error = make(chan error, 1)
+	errCh := make(chan error, 1)
 
 	go collectResults(config, &wg, imageErr, cancel, printImageTableHeader, errCh)
 	wg.Wait()
@@ -112,7 +115,39 @@ func (search imageByNameSearcher) search(config searchConfig) (bool, error) {
 		*config.params["imageName"], imageErr, &wg)
 	wg.Add(1)
 
-	var errCh chan error = make(chan error, 1)
+	errCh := make(chan error, 1)
+	go collectResults(config, &wg, imageErr, cancel, printImageTableHeader, errCh)
+
+	wg.Wait()
+
+	select {
+	case err := <-errCh:
+		return true, err
+	default:
+		return true, nil
+	}
+}
+
+type imagesByDigestSearcher struct{}
+
+func (search imagesByDigestSearcher) search(config searchConfig) (bool, error) {
+	if !canSearch(config.params, newSet("digest")) {
+		return false, nil
+	}
+
+	username, password := getUsernameAndPassword(*config.user)
+	imageErr := make(chan stringResult)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
+	go config.searchService.getImagesByDigest(ctx, config, username, password,
+		*config.params["digest"], imageErr, &wg)
+	wg.Add(1)
+
+	errCh := make(chan error, 1)
 	go collectResults(config, &wg, imageErr, cancel, printImageTableHeader, errCh)
 
 	wg.Wait()
@@ -147,7 +182,7 @@ func (search cveByImageSearcher) search(config searchConfig) (bool, error) {
 	go config.searchService.getCveByImage(ctx, config, username, password, *config.params["imageName"], strErr, &wg)
 	wg.Add(1)
 
-	var errCh chan error = make(chan error, 1)
+	errCh := make(chan error, 1)
 	go collectResults(config, &wg, strErr, cancel, printCVETableHeader, errCh)
 
 	wg.Wait()
@@ -163,7 +198,7 @@ func (search cveByImageSearcher) search(config searchConfig) (bool, error) {
 type imagesByCVEIDSearcher struct{}
 
 func (search imagesByCVEIDSearcher) search(config searchConfig) (bool, error) {
-	if !canSearch(config.params, newSet("cveID")) || *config.fixedFlag {
+	if !canSearch(config.params, newSet("cvid")) || *config.fixedFlag {
 		return false, nil
 	}
 
@@ -175,10 +210,10 @@ func (search imagesByCVEIDSearcher) search(config searchConfig) (bool, error) {
 
 	wg.Add(1)
 
-	go config.searchService.getImagesByCveID(ctx, config, username, password, *config.params["cveID"], strErr, &wg)
+	go config.searchService.getImagesByCveID(ctx, config, username, password, *config.params["cvid"], strErr, &wg)
 	wg.Add(1)
 
-	var errCh chan error = make(chan error, 1)
+	errCh := make(chan error, 1)
 	go collectResults(config, &wg, strErr, cancel, printImageTableHeader, errCh)
 
 	wg.Wait()
@@ -194,7 +229,7 @@ func (search imagesByCVEIDSearcher) search(config searchConfig) (bool, error) {
 type tagsByImageNameAndCVEIDSearcher struct{}
 
 func (search tagsByImageNameAndCVEIDSearcher) search(config searchConfig) (bool, error) {
-	if !canSearch(config.params, newSet("cveID", "imageName")) || *config.fixedFlag {
+	if !canSearch(config.params, newSet("cvid", "imageName")) || *config.fixedFlag {
 		return false, nil
 	}
 
@@ -211,10 +246,10 @@ func (search tagsByImageNameAndCVEIDSearcher) search(config searchConfig) (bool,
 	wg.Add(1)
 
 	go config.searchService.getImageByNameAndCVEID(ctx, config, username, password, *config.params["imageName"],
-		*config.params["cveID"], strErr, &wg)
+		*config.params["cvid"], strErr, &wg)
 	wg.Add(1)
 
-	var errCh chan error = make(chan error, 1)
+	errCh := make(chan error, 1)
 	go collectResults(config, &wg, strErr, cancel, printImageTableHeader, errCh)
 
 	wg.Wait()
@@ -230,7 +265,7 @@ func (search tagsByImageNameAndCVEIDSearcher) search(config searchConfig) (bool,
 type fixedTagsSearcher struct{}
 
 func (search fixedTagsSearcher) search(config searchConfig) (bool, error) {
-	if !canSearch(config.params, newSet("cveID", "imageName")) || !*config.fixedFlag {
+	if !canSearch(config.params, newSet("cvid", "imageName")) || !*config.fixedFlag {
 		return false, nil
 	}
 
@@ -247,10 +282,10 @@ func (search fixedTagsSearcher) search(config searchConfig) (bool, error) {
 	wg.Add(1)
 
 	go config.searchService.getFixedTagsForCVE(ctx, config, username, password, *config.params["imageName"],
-		*config.params["cveID"], strErr, &wg)
+		*config.params["cvid"], strErr, &wg)
 	wg.Add(1)
 
-	var errCh chan error = make(chan error, 1)
+	errCh := make(chan error, 1)
 	go collectResults(config, &wg, strErr, cancel, printImageTableHeader, errCh)
 
 	wg.Wait()
@@ -264,7 +299,8 @@ func (search fixedTagsSearcher) search(config searchConfig) (bool, error) {
 }
 
 func collectResults(config searchConfig, wg *sync.WaitGroup, imageErr chan stringResult,
-	cancel context.CancelFunc, printHeader printHeader, errCh chan error) {
+	cancel context.CancelFunc, printHeader printHeader, errCh chan error,
+) {
 	var foundResult bool
 
 	defer wg.Done()
@@ -277,6 +313,7 @@ func collectResults(config searchConfig, wg *sync.WaitGroup, imageErr chan strin
 
 			if !ok {
 				cancel()
+
 				return
 			}
 
@@ -290,7 +327,7 @@ func collectResults(config searchConfig, wg *sync.WaitGroup, imageErr chan strin
 			if !foundResult && (*config.outputFormat == defaultOutoutFormat || *config.outputFormat == "") {
 				var builder strings.Builder
 
-				printHeader(&builder)
+				printHeader(&builder, *config.verbose)
 				fmt.Fprint(config.resultWriter, builder.String())
 			}
 
@@ -311,6 +348,7 @@ func collectResults(config searchConfig, wg *sync.WaitGroup, imageErr chan strin
 func getUsernameAndPassword(user string) (string, string) {
 	if strings.Contains(user, ":") {
 		split := strings.Split(user, ":")
+
 		return split[0], split[1]
 	}
 
@@ -359,18 +397,19 @@ func getEmptyStruct() struct{} {
 }
 
 func newSet(initialValues ...string) *set {
-	s := &set{}
-	s.m = make(map[string]struct{})
+	ret := &set{}
+	ret.m = make(map[string]struct{})
 
 	for _, val := range initialValues {
-		s.m[val] = getEmptyStruct()
+		ret.m[val] = getEmptyStruct()
 	}
 
-	return s
+	return ret
 }
 
 func (s *set) contains(value string) bool {
 	_, c := s.m[value]
+
 	return c
 }
 
@@ -384,24 +423,40 @@ type stringResult struct {
 	Err      error
 }
 
-type printHeader func(writer io.Writer)
+type printHeader func(writer io.Writer, verbose bool)
 
-func printImageTableHeader(writer io.Writer) {
+func printImageTableHeader(writer io.Writer, verbose bool) {
 	table := getImageTableWriter(writer)
-	row := make([]string, 4)
+
+	table.SetColMinWidth(colImageNameIndex, imageNameWidth)
+	table.SetColMinWidth(colTagIndex, tagWidth)
+	table.SetColMinWidth(colDigestIndex, digestWidth)
+	table.SetColMinWidth(colSizeIndex, sizeWidth)
+
+	if verbose {
+		table.SetColMinWidth(colConfigIndex, configWidth)
+		table.SetColMinWidth(colLayersIndex, layersWidth)
+	}
+
+	row := make([]string, 6) //nolint:gomnd
 
 	row[colImageNameIndex] = "IMAGE NAME"
 	row[colTagIndex] = "TAG"
 	row[colDigestIndex] = "DIGEST"
 	row[colSizeIndex] = "SIZE"
 
+	if verbose {
+		row[colConfigIndex] = "CONFIG"
+		row[colLayersIndex] = "LAYERS"
+	}
+
 	table.Append(row)
 	table.Render()
 }
 
-func printCVETableHeader(writer io.Writer) {
+func printCVETableHeader(writer io.Writer, verbose bool) {
 	table := getCVETableWriter(writer)
-	row := make([]string, 3)
+	row := make([]string, 3) //nolint:gomnd
 	row[colCVEIDIndex] = "ID"
 	row[colCVESeverityIndex] = "SEVERITY"
 	row[colCVETitleIndex] = "TITLE"
@@ -418,3 +473,29 @@ var (
 	errInvalidImageNameAndTag = errors.New("cli: Invalid input format. Expected IMAGENAME:TAG")
 	errInvalidImageName       = errors.New("cli: Invalid input format. Expected IMAGENAME without :TAG")
 )
+
+type repoSearcher struct{}
+
+func (search repoSearcher) searchRepos(config searchConfig) error {
+	username, password := getUsernameAndPassword(*config.user)
+	repoErr := make(chan stringResult)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
+	go config.searchService.getRepos(ctx, config, username, password, repoErr, &wg)
+	wg.Add(1)
+
+	errCh := make(chan error, 1)
+
+	go collectResults(config, &wg, repoErr, cancel, printImageTableHeader, errCh)
+	wg.Wait()
+	select {
+	case err := <-errCh:
+		return err
+	default:
+		return nil
+	}
+}

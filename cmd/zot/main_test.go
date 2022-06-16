@@ -3,18 +3,19 @@ package main_test
 import (
 	"testing"
 
-	"github.com/anuvu/zot/pkg/api"
-	"github.com/anuvu/zot/pkg/cli"
 	. "github.com/smartystreets/goconvey/convey"
+	"zotregistry.io/zot/pkg/api"
+	"zotregistry.io/zot/pkg/api/config"
+	"zotregistry.io/zot/pkg/cli"
 )
 
 func TestIntegration(t *testing.T) {
 	Convey("Make a new controller", t, func() {
-		config := api.NewConfig()
-		c := api.NewController(config)
+		conf := config.New()
+		c := api.NewController(conf)
 		So(c, ShouldNotBeNil)
 
-		cl := cli.NewRootCmd()
+		cl := cli.NewServerRootCmd()
 		So(cl, ShouldNotBeNil)
 
 		So(cl.Execute(), ShouldBeNil)

@@ -1,0 +1,26 @@
+{
+    "distSpecVersion": "1.0.1",
+    "storage": {
+        "rootDirectory": "/tmp/zot",
+        "gc": false,
+        "dedupe": false,
+        "storageDriver": {
+            "name": "s3",
+            "rootdirectory": "/zot",
+            "region": "us-east-2",
+            "bucket": "zot-storage",
+            "regionendpoint": "http://localhost:9000",
+            "secure": false,
+            "skipverify": false
+        }
+    },
+    "http": {
+        "address": "127.0.0.1",
+        "port": "8081",
+        "ReadOnly": false
+    },
+    "log": {
+        "level": "debug",
+        "output": "/dev/null"
+    }
+}

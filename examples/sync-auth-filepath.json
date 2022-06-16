@@ -1,0 +1,10 @@
+{
+    "127.0.0.1:8080": {
+        "username": "user",
+        "password": "pass"
+    },
+    "registry2:5000": {
+        "username": "user2",
+        "password": "pass2"
+    }
+}

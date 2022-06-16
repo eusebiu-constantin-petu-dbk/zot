@@ -1,3 +1,4 @@
+//go:build extended
 // +build extended
 
 package cli //nolint:testpackage
@@ -6,8 +7,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"regexp"
@@ -15,12 +14,14 @@ import (
 	"testing"
 	"time"
 
-	zotErrors "github.com/anuvu/zot/errors"
-	"github.com/anuvu/zot/pkg/api"
-	ext "github.com/anuvu/zot/pkg/extensions"
-	"gopkg.in/resty.v1"
-
 	. "github.com/smartystreets/goconvey/convey"
+	"gopkg.in/resty.v1"
+	zotErrors "zotregistry.io/zot/errors"
+	"zotregistry.io/zot/pkg/api"
+	"zotregistry.io/zot/pkg/api/config"
+	"zotregistry.io/zot/pkg/api/constants"
+	extconf "zotregistry.io/zot/pkg/extensions/config"
+	"zotregistry.io/zot/pkg/test"
 )
 
 func TestSearchCVECmd(t *testing.T) {
@@ -31,7 +32,7 @@ func TestSearchCVECmd(t *testing.T) {
 		cmd := NewCveCommand(new(mockService))
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(buff.String(), ShouldContainSubstring, "Usage")
@@ -43,7 +44,7 @@ func TestSearchCVECmd(t *testing.T) {
 			cmd := NewCveCommand(new(mockService))
 			buff := bytes.NewBufferString("")
 			cmd.SetOut(buff)
-			cmd.SetErr(ioutil.Discard)
+			cmd.SetErr(buff)
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			So(buff.String(), ShouldContainSubstring, "Usage")
@@ -57,7 +58,7 @@ func TestSearchCVECmd(t *testing.T) {
 		cmd := NewCveCommand(new(mockService))
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(err, ShouldNotBeNil)
@@ -71,7 +72,7 @@ func TestSearchCVECmd(t *testing.T) {
 		cmd := NewCveCommand(new(mockService))
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		So(err, ShouldEqual, zotErrors.ErrInvalidFlagsCombination)
@@ -142,7 +143,7 @@ func TestSearchCVECmd(t *testing.T) {
 		cmd := NewCveCommand(new(mockService))
 		buff := bytes.NewBufferString("")
 		cmd.SetOut(buff)
-		cmd.SetErr(ioutil.Discard)
+		cmd.SetErr(buff)
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		space := regexp.MustCompile(`\s+`)
@@ -158,7 +159,7 @@ func TestSearchCVECmd(t *testing.T) {
 		cveCmd := NewCveCommand(new(mockService))
 		buff := bytes.NewBufferString("")
 		cveCmd.SetOut(buff)
-		cveCmd.SetErr(ioutil.Discard)
+		cveCmd.SetErr(buff)
 		cveCmd.SetArgs(args)
 		err := cveCmd.Execute()
 		space := regexp.MustCompile(`\s+`)
@@ -172,7 +173,7 @@ func TestSearchCVECmd(t *testing.T) {
 			defer os.Remove(configPath)
 			cveCmd := NewCveCommand(new(mockService))
 			cveCmd.SetOut(buff)
-			cveCmd.SetErr(ioutil.Discard)
+			cveCmd.SetErr(buff)
 			cveCmd.SetArgs(args)
 			err := cveCmd.Execute()
 
@@ -190,7 +191,7 @@ func TestSearchCVECmd(t *testing.T) {
 		cveCmd := NewCveCommand(new(mockService))
 		buff := bytes.NewBufferString("")
 		cveCmd.SetOut(buff)
-		cveCmd.SetErr(ioutil.Discard)
+		cveCmd.SetErr(buff)
 		cveCmd.SetArgs(args)
 		err := cveCmd.Execute()
 		space := regexp.MustCompile(`\s+`)
@@ -205,7 +206,7 @@ func TestSearchCVECmd(t *testing.T) {
 			cveCmd := NewCveCommand(new(mockService))
 			buff := bytes.NewBufferString("")
 			cveCmd.SetOut(buff)
-			cveCmd.SetErr(ioutil.Discard)
+			cveCmd.SetErr(buff)
 			cveCmd.SetArgs(args)
 			err := cveCmd.Execute()
 			space := regexp.MustCompile(`\s+`)
@@ -224,7 +225,7 @@ func TestSearchCVECmd(t *testing.T) {
 			cveCmd := NewCveCommand(new(mockService))
 			buff := bytes.NewBufferString("")
 			cveCmd.SetOut(buff)
-			cveCmd.SetErr(ioutil.Discard)
+			cveCmd.SetErr(buff)
 			cveCmd.SetArgs(args)
 			err := cveCmd.Execute()
 			space := regexp.MustCompile(`\s+`)
@@ -241,7 +242,7 @@ func TestSearchCVECmd(t *testing.T) {
 			cveCmd := NewCveCommand(new(mockService))
 			buff := bytes.NewBufferString("")
 			cveCmd.SetOut(buff)
-			cveCmd.SetErr(ioutil.Discard)
+			cveCmd.SetErr(buff)
 			cveCmd.SetArgs(args)
 			err := cveCmd.Execute()
 			space := regexp.MustCompile(`\s+`)
@@ -258,7 +259,7 @@ func TestSearchCVECmd(t *testing.T) {
 		cveCmd := NewCveCommand(new(mockService))
 		buff := bytes.NewBufferString("")
 		cveCmd.SetOut(buff)
-		cveCmd.SetErr(ioutil.Discard)
+		cveCmd.SetErr(buff)
 		cveCmd.SetArgs(args)
 		err := cveCmd.Execute()
 		space := regexp.MustCompile(`\s+`)
@@ -274,7 +275,7 @@ func TestSearchCVECmd(t *testing.T) {
 		cveCmd := NewCveCommand(new(mockService))
 		buff := bytes.NewBufferString("")
 		cveCmd.SetOut(buff)
-		cveCmd.SetErr(ioutil.Discard)
+		cveCmd.SetErr(buff)
 		cveCmd.SetArgs(args)
 		err := cveCmd.Execute()
 		space := regexp.MustCompile(`\s+`)
@@ -285,56 +286,54 @@ func TestSearchCVECmd(t *testing.T) {
 }
 
 func TestServerCVEResponse(t *testing.T) {
-	port := "8080"
-	url := "http://127.0.0.1:8080"
-	config := api.NewConfig()
-	config.HTTP.Port = port
-	c := api.NewController(config)
+	port := test.GetFreePort()
+	url := test.GetBaseURL(port)
+	conf := config.New()
+	conf.HTTP.Port = port
 
-	dir, err := ioutil.TempDir("", "oci-repo-test")
+	dir := t.TempDir()
+
+	err := test.CopyFiles("../../test/data/zot-cve-test", path.Join(dir, "zot-cve-test"))
 	if err != nil {
 		panic(err)
 	}
 
-	err = copyFiles("../../test/data/zot-cve-test", path.Join(dir, "zot-cve-test"))
-	if err != nil {
-		panic(err)
-	}
-
-	defer os.RemoveAll(dir)
-
-	c.Config.Storage.RootDirectory = dir
-	cveConfig := &ext.CVEConfig{
+	conf.Storage.RootDirectory = dir
+	cveConfig := &extconf.CVEConfig{
 		UpdateInterval: 2,
 	}
-	searchConfig := &ext.SearchConfig{
-		CVE: cveConfig,
+	defaultVal := true
+	searchConfig := &extconf.SearchConfig{
+		CVE:    cveConfig,
+		Enable: &defaultVal,
 	}
-	c.Config.Extensions = &ext.ExtensionConfig{
+	conf.Extensions = &extconf.ExtensionConfig{
 		Search: searchConfig,
 	}
 
+	ctlr := api.NewController(conf)
+
 	go func(controller *api.Controller) {
 		// this blocks
-		if err := controller.Run(); err != nil {
+		if err := controller.Run(context.Background()); err != nil {
 			return
 		}
-	}(c)
+	}(ctlr)
 	// wait till ready
 	for {
-		res, err := resty.R().Get(url + "/query")
+		res, err := resty.R().Get(url + constants.ExtSearchPrefix)
 		if err == nil && res.StatusCode() == 200 {
 			break
 		}
 
 		time.Sleep(100 * time.Millisecond)
 	}
-	time.Sleep(35 * time.Second)
+	time.Sleep(90 * time.Second)
 
 	defer func(controller *api.Controller) {
 		ctx := context.Background()
 		_ = controller.Server.Shutdown(ctx)
-	}(c)
+	}(ctlr)
 
 	Convey("Test CVE by image name", t, func() {
 		args := []string{"cvetest", "--image", "zot-cve-test:0.0.1"}
@@ -343,7 +342,7 @@ func TestServerCVEResponse(t *testing.T) {
 		cveCmd := NewCveCommand(new(searchService))
 		buff := bytes.NewBufferString("")
 		cveCmd.SetOut(buff)
-		cveCmd.SetErr(ioutil.Discard)
+		cveCmd.SetErr(buff)
 		cveCmd.SetArgs(args)
 		err = cveCmd.Execute()
 		space := regexp.MustCompile(`\s+`)
@@ -359,7 +358,7 @@ func TestServerCVEResponse(t *testing.T) {
 			cveCmd := NewCveCommand(new(searchService))
 			buff := bytes.NewBufferString("")
 			cveCmd.SetOut(buff)
-			cveCmd.SetErr(ioutil.Discard)
+			cveCmd.SetErr(buff)
 			cveCmd.SetArgs(args)
 			err = cveCmd.Execute()
 			So(err, ShouldNotBeNil)
@@ -373,7 +372,7 @@ func TestServerCVEResponse(t *testing.T) {
 		cveCmd := NewCveCommand(new(searchService))
 		buff := bytes.NewBufferString("")
 		cveCmd.SetOut(buff)
-		cveCmd.SetErr(ioutil.Discard)
+		cveCmd.SetErr(buff)
 		cveCmd.SetArgs(args)
 		err := cveCmd.Execute()
 		space := regexp.MustCompile(`\s+`)
@@ -388,7 +387,7 @@ func TestServerCVEResponse(t *testing.T) {
 			cveCmd := NewCveCommand(new(searchService))
 			buff := bytes.NewBufferString("")
 			cveCmd.SetOut(buff)
-			cveCmd.SetErr(ioutil.Discard)
+			cveCmd.SetErr(buff)
 			cveCmd.SetArgs(args)
 			err := cveCmd.Execute()
 			space := regexp.MustCompile(`\s+`)
@@ -406,7 +405,7 @@ func TestServerCVEResponse(t *testing.T) {
 		cveCmd := NewCveCommand(new(searchService))
 		buff := bytes.NewBufferString("")
 		cveCmd.SetOut(buff)
-		cveCmd.SetErr(ioutil.Discard)
+		cveCmd.SetErr(buff)
 		cveCmd.SetArgs(args)
 		err := cveCmd.Execute()
 		space := regexp.MustCompile(`\s+`)
@@ -421,7 +420,7 @@ func TestServerCVEResponse(t *testing.T) {
 			cveCmd := NewCveCommand(new(searchService))
 			buff := bytes.NewBufferString("")
 			cveCmd.SetOut(buff)
-			cveCmd.SetErr(ioutil.Discard)
+			cveCmd.SetErr(buff)
 			cveCmd.SetArgs(args)
 			err := cveCmd.Execute()
 			space := regexp.MustCompile(`\s+`)
@@ -438,7 +437,7 @@ func TestServerCVEResponse(t *testing.T) {
 			cveCmd := NewCveCommand(new(searchService))
 			buff := bytes.NewBufferString("")
 			cveCmd.SetOut(buff)
-			cveCmd.SetErr(ioutil.Discard)
+			cveCmd.SetErr(buff)
 			cveCmd.SetArgs(args)
 			err := cveCmd.Execute()
 			space := regexp.MustCompile(`\s+`)
@@ -456,7 +455,7 @@ func TestServerCVEResponse(t *testing.T) {
 		cveCmd := NewCveCommand(new(searchService))
 		buff := bytes.NewBufferString("")
 		cveCmd.SetOut(buff)
-		cveCmd.SetErr(ioutil.Discard)
+		cveCmd.SetErr(buff)
 		cveCmd.SetArgs(args)
 		err := cveCmd.Execute()
 		space := regexp.MustCompile(`\s+`)
@@ -470,7 +469,7 @@ func TestServerCVEResponse(t *testing.T) {
 			cveCmd := NewCveCommand(new(searchService))
 			buff := bytes.NewBufferString("")
 			cveCmd.SetOut(buff)
-			cveCmd.SetErr(ioutil.Discard)
+			cveCmd.SetErr(buff)
 			cveCmd.SetArgs(args)
 			err := cveCmd.Execute()
 			space := regexp.MustCompile(`\s+`)
@@ -479,49 +478,4 @@ func TestServerCVEResponse(t *testing.T) {
 			So(strings.TrimSpace(str), ShouldNotContainSubstring, "IMAGE NAME TAG DIGEST SIZE")
 		})
 	})
-}
-
-func copyFiles(sourceDir string, destDir string) error {
-	sourceMeta, err := os.Stat(sourceDir)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(destDir, sourceMeta.Mode()); err != nil {
-		return err
-	}
-
-	files, err := ioutil.ReadDir(sourceDir)
-	if err != nil {
-		return err
-	}
-
-	for _, file := range files {
-		sourceFilePath := path.Join(sourceDir, file.Name())
-		destFilePath := path.Join(destDir, file.Name())
-
-		if file.IsDir() {
-			if err = copyFiles(sourceFilePath, destFilePath); err != nil {
-				return err
-			}
-		} else {
-			sourceFile, err := os.Open(sourceFilePath)
-			if err != nil {
-				return err
-			}
-			defer sourceFile.Close()
-
-			destFile, err := os.Create(destFilePath)
-			if err != nil {
-				return err
-			}
-			defer destFile.Close()
-
-			if _, err = io.Copy(destFile, sourceFile); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
 }

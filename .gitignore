@@ -13,7 +13,7 @@
 
 bin/
 bazel-*
-coverage.txt
+coverage*.txt
 test/data/
 *.orig
 .idea/

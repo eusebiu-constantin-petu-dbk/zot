@@ -3,17 +3,15 @@
 package api
 
 import (
-	"time"
-
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"sync"
+	"time"
 
-	"github.com/anuvu/zot/errors"
-	goldap "github.com/go-ldap/ldap/v3"
-
-	"github.com/anuvu/zot/pkg/log"
 	"github.com/go-ldap/ldap/v3"
+	"zotregistry.io/zot/errors"
+	"zotregistry.io/zot/pkg/log"
 )
 
 type LDAPClient struct {
@@ -34,21 +32,23 @@ type LDAPClient struct {
 	ClientCertificates []tls.Certificate // Adding client certificates
 	ClientCAs          *x509.CertPool
 	Log                log.Logger
+	lock               sync.Mutex
 }
 
 // Connect connects to the ldap backend.
 func (lc *LDAPClient) Connect() error {
 	if lc.Conn == nil {
-		var l *goldap.Conn
+		var l *ldap.Conn
 
 		var err error
 
 		address := fmt.Sprintf("%s:%d", lc.Host, lc.Port)
 
 		if !lc.UseSSL {
-			l, err = goldap.Dial("tcp", address)
+			l, err = ldap.Dial("tcp", address)
 			if err != nil {
 				lc.Log.Error().Err(err).Str("address", address).Msg("non-TLS connection failed")
+
 				return err
 			}
 
@@ -58,15 +58,17 @@ func (lc *LDAPClient) Connect() error {
 					InsecureSkipVerify: lc.InsecureSkipVerify, // nolint: gosec // InsecureSkipVerify is not true by default
 					RootCAs:            lc.ClientCAs,
 				}
+
 				if lc.ClientCertificates != nil && len(lc.ClientCertificates) > 0 {
 					config.Certificates = lc.ClientCertificates
-					config.BuildNameToCertificate() // nolint: staticcheck
+					config.BuildNameToCertificate()
 				}
 
 				err = l.StartTLS(config)
 
 				if err != nil {
 					lc.Log.Error().Err(err).Str("address", address).Msg("TLS connection failed")
+
 					return err
 				}
 			}
@@ -78,11 +80,12 @@ func (lc *LDAPClient) Connect() error {
 			}
 			if lc.ClientCertificates != nil && len(lc.ClientCertificates) > 0 {
 				config.Certificates = lc.ClientCertificates
-				config.BuildNameToCertificate() // nolint: staticcheck
+				config.BuildNameToCertificate()
 			}
-			l, err = goldap.DialTLS("tcp", address, config)
+			l, err = ldap.DialTLS("tcp", address, config)
 			if err != nil {
 				lc.Log.Error().Err(err).Str("address", address).Msg("TLS connection failed")
+
 				return err
 			}
 		}
@@ -110,6 +113,7 @@ func sleepAndRetry(retries, maxRetries int) bool {
 
 	if retries < maxRetries {
 		time.Sleep(time.Duration(retries) * time.Second) // gradually backoff
+
 		return true
 	}
 
@@ -118,6 +122,10 @@ func sleepAndRetry(retries, maxRetries int) bool {
 
 // Authenticate authenticates the user against the ldap backend.
 func (lc *LDAPClient) Authenticate(username, password string) (bool, map[string]string, error) {
+	// serialize LDAP calls since some LDAP servers don't allow searches when binds are in flight
+	lc.lock.Lock()
+	defer lc.lock.Unlock()
+
 	if password == "" {
 		// RFC 4513 section 5.1.2
 		return false, nil, errors.ErrLDAPEmptyPassphrase
@@ -149,25 +157,27 @@ func (lc *LDAPClient) Authenticate(username, password string) (bool, map[string]
 	// exhausted all retries?
 	if !connected {
 		lc.Log.Error().Err(errors.ErrLDAPBadConn).Msg("exhausted all retries")
+
 		return false, nil, errors.ErrLDAPBadConn
 	}
 
-	attributes := append(lc.Attributes, "dn")
-	searchScope := goldap.ScopeSingleLevel
+	attributes := lc.Attributes
+	attributes = append(attributes, "dn")
+	searchScope := ldap.ScopeSingleLevel
 
 	if lc.SubtreeSearch {
-		searchScope = goldap.ScopeWholeSubtree
+		searchScope = ldap.ScopeWholeSubtree
 	}
 	// Search for the given username
-	searchRequest := goldap.NewSearchRequest(
+	searchRequest := ldap.NewSearchRequest(
 		lc.Base,
-		searchScope, goldap.NeverDerefAliases, 0, 0, false,
+		searchScope, ldap.NeverDerefAliases, 0, 0, false,
 		fmt.Sprintf(lc.UserFilter, username),
 		attributes,
 		nil,
 	)
 
-	sr, err := lc.Conn.Search(searchRequest)
+	search, err := lc.Conn.Search(searchRequest)
 	if err != nil {
 		fmt.Printf("%v\n", err)
 		lc.Log.Error().Err(err).Str("bindDN", lc.BindDN).Str("username", username).
@@ -176,7 +186,7 @@ func (lc *LDAPClient) Authenticate(username, password string) (bool, map[string]
 		return false, nil, err
 	}
 
-	if len(sr.Entries) < 1 {
+	if len(search.Entries) < 1 {
 		err := errors.ErrBadUser
 		lc.Log.Error().Err(err).Str("bindDN", lc.BindDN).Str("username", username).
 			Str("baseDN", lc.Base).Msg("entries not found")
@@ -184,7 +194,7 @@ func (lc *LDAPClient) Authenticate(username, password string) (bool, map[string]
 		return false, nil, err
 	}
 
-	if len(sr.Entries) > 1 {
+	if len(search.Entries) > 1 {
 		err := errors.ErrEntriesExceeded
 		lc.Log.Error().Err(err).Str("bindDN", lc.BindDN).Str("username", username).
 			Str("baseDN", lc.Base).Msg("too many entries")
@@ -192,26 +202,19 @@ func (lc *LDAPClient) Authenticate(username, password string) (bool, map[string]
 		return false, nil, err
 	}
 
-	userDN := sr.Entries[0].DN
+	userDN := search.Entries[0].DN
 	user := map[string]string{}
 
 	for _, attr := range lc.Attributes {
-		user[attr] = sr.Entries[0].GetAttributeValue(attr)
+		user[attr] = search.Entries[0].GetAttributeValue(attr)
 	}
 
 	// Bind as the user to verify their password
 	err = lc.Conn.Bind(userDN, password)
 	if err != nil {
 		lc.Log.Error().Err(err).Str("bindDN", userDN).Msg("user bind failed")
-		return false, user, err
-	}
 
-	// Rebind as the read only user for any further queries
-	if lc.BindDN != "" && lc.BindPassword != "" {
-		err = lc.Conn.Bind(lc.BindDN, lc.BindPassword)
-		if err != nil {
-			return true, user, err
-		}
+		return false, user, err
 	}
 
 	return true, user, nil

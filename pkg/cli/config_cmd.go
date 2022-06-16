@@ -1,3 +1,4 @@
+//go:build extended
 // +build extended
 
 package cli
@@ -13,10 +14,13 @@ import (
 	"text/tabwriter"
 
 	jsoniter "github.com/json-iterator/go"
-
-	zotErrors "github.com/anuvu/zot/errors"
-
 	"github.com/spf13/cobra"
+	zerr "zotregistry.io/zot/errors"
+)
+
+const (
+	defaultConfigPerms = 0o644
+	defaultFilePerms   = 0o600
 )
 
 func NewConfigCommand() *cobra.Command {
@@ -24,11 +28,11 @@ func NewConfigCommand() *cobra.Command {
 
 	var isReset bool
 
-	var configCmd = &cobra.Command{
+	configCmd := &cobra.Command{
 		Use:     "config <config-name> [variable] [value]",
 		Example: examples,
-		Short:   "Configure zot CLI",
-		Long:    `Configure default parameters for CLI`,
+		Short:   "Configure zot registry parameters for CLI",
+		Long:    `Configure zot registry parameters for CLI`,
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := os.UserHomeDir()
@@ -50,7 +54,7 @@ func NewConfigCommand() *cobra.Command {
 					return nil
 				}
 
-				return zotErrors.ErrInvalidArgs
+				return zerr.ErrInvalidArgs
 			case oneArg:
 				// zot config <name> -l
 				if isListing {
@@ -64,7 +68,7 @@ func NewConfigCommand() *cobra.Command {
 					return nil
 				}
 
-				return zotErrors.ErrInvalidArgs
+				return zerr.ErrInvalidArgs
 			case twoArgs:
 				if isReset { // zot config <name> <key> --reset
 					return resetConfigValue(configPath, args[0], args[1])
@@ -76,13 +80,13 @@ func NewConfigCommand() *cobra.Command {
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), res)
 			case threeArgs:
-				//zot config <name> <key> <value>
+				// zot config <name> <key> <value>
 				if err := setConfigValue(configPath, args[0], args[1], args[2]); err != nil {
 					return err
 				}
 
 			default:
-				return zotErrors.ErrInvalidArgs
+				return zerr.ErrInvalidArgs
 			}
 
 			return nil
@@ -98,10 +102,10 @@ func NewConfigCommand() *cobra.Command {
 }
 
 func NewConfigAddCommand() *cobra.Command {
-	var configAddCmd = &cobra.Command{
+	configAddCmd := &cobra.Command{
 		Use:   "add <config-name> <url>",
-		Short: "Add configuration for a zot URL",
-		Long:  `Configure CLI for interaction with a zot server`,
+		Short: "Add configuration for a zot registry",
+		Long:  "Add configuration for a zot registry",
 		Args:  cobra.ExactArgs(twoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := os.UserHomeDir()
@@ -124,7 +128,7 @@ func NewConfigAddCommand() *cobra.Command {
 }
 
 func getConfigMapFromFile(filePath string) ([]interface{}, error) {
-	file, err := os.OpenFile(filePath, os.O_RDONLY|os.O_CREATE, 0644)
+	file, err := os.OpenFile(filePath, os.O_RDONLY|os.O_CREATE, defaultConfigPerms)
 	if err != nil {
 		return nil, err
 	}
@@ -138,29 +142,34 @@ func getConfigMapFromFile(filePath string) ([]interface{}, error) {
 
 	var jsonMap map[string]interface{}
 
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
 
 	_ = json.Unmarshal(data, &jsonMap)
 
 	if jsonMap["configs"] == nil {
-		return nil, ErrEmptyJSON
+		return nil, zerr.ErrEmptyJSON
 	}
 
-	return jsonMap["configs"].([]interface{}), nil
+	configs, ok := jsonMap["configs"].([]interface{})
+	if !ok {
+		return nil, zerr.ErrCliBadConfig
+	}
+
+	return configs, nil
 }
 
 func saveConfigMapToFile(filePath string, configMap []interface{}) error {
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
 
 	listMap := make(map[string]interface{})
 	listMap["configs"] = configMap
-	marshalled, err := json.Marshal(&listMap)
 
+	marshalled, err := json.Marshal(&listMap)
 	if err != nil {
 		return err
 	}
 
-	if err := ioutil.WriteFile(filePath, marshalled, 0600); err != nil {
+	if err := ioutil.WriteFile(filePath, marshalled, defaultFilePerms); err != nil {
 		return err
 	}
 
@@ -170,7 +179,7 @@ func saveConfigMapToFile(filePath string, configMap []interface{}) error {
 func getConfigNames(configPath string) (string, error) {
 	configs, err := getConfigMapFromFile(configPath)
 	if err != nil {
-		if errors.Is(err, ErrEmptyJSON) {
+		if errors.Is(err, zerr.ErrEmptyJSON) {
 			return "", nil
 		}
 
@@ -179,10 +188,14 @@ func getConfigNames(configPath string) (string, error) {
 
 	var builder strings.Builder
 
-	writer := tabwriter.NewWriter(&builder, 0, 8, 1, '\t', tabwriter.AlignRight)
+	writer := tabwriter.NewWriter(&builder, 0, 8, 1, '\t', tabwriter.AlignRight) //nolint:gomnd
 
 	for _, val := range configs {
-		configMap := val.(map[string]interface{})
+		configMap, ok := val.(map[string]interface{})
+		if !ok {
+			return "", zerr.ErrBadConfig
+		}
+
 		fmt.Fprintf(writer, "%s\t%s\n", configMap[nameKey], configMap["url"])
 	}
 
@@ -196,16 +209,16 @@ func getConfigNames(configPath string) (string, error) {
 
 func addConfig(configPath, configName, url string) error {
 	configs, err := getConfigMapFromFile(configPath)
-	if err != nil && !errors.Is(err, ErrEmptyJSON) {
+	if err != nil && !errors.Is(err, zerr.ErrEmptyJSON) {
 		return err
 	}
 
 	if !isURL(url) {
-		return zotErrors.ErrInvalidURL
+		return zerr.ErrInvalidURL
 	}
 
 	if configNameExists(configs, configName) {
-		return zotErrors.ErrDuplicateConfigName
+		return zerr.ErrDuplicateConfigName
 	}
 
 	configMap := make(map[string]interface{})
@@ -235,15 +248,19 @@ func addDefaultConfigs(config map[string]interface{}) {
 func getConfigValue(configPath, configName, key string) (string, error) {
 	configs, err := getConfigMapFromFile(configPath)
 	if err != nil {
-		if errors.Is(err, ErrEmptyJSON) {
-			return "", zotErrors.ErrConfigNotFound
+		if errors.Is(err, zerr.ErrEmptyJSON) {
+			return "", zerr.ErrConfigNotFound
 		}
 
 		return "", err
 	}
 
 	for _, val := range configs {
-		configMap := val.(map[string]interface{})
+		configMap, ok := val.(map[string]interface{})
+		if !ok {
+			return "", zerr.ErrBadConfig
+		}
+
 		addDefaultConfigs(configMap)
 
 		name := configMap[nameKey]
@@ -256,25 +273,29 @@ func getConfigValue(configPath, configName, key string) (string, error) {
 		}
 	}
 
-	return "", zotErrors.ErrConfigNotFound
+	return "", zerr.ErrConfigNotFound
 }
 
 func resetConfigValue(configPath, configName, key string) error {
 	if key == "url" || key == nameKey {
-		return zotErrors.ErrCannotResetConfigKey
+		return zerr.ErrCannotResetConfigKey
 	}
 
 	configs, err := getConfigMapFromFile(configPath)
 	if err != nil {
-		if errors.Is(err, ErrEmptyJSON) {
-			return zotErrors.ErrConfigNotFound
+		if errors.Is(err, zerr.ErrEmptyJSON) {
+			return zerr.ErrConfigNotFound
 		}
 
 		return err
 	}
 
 	for _, val := range configs {
-		configMap := val.(map[string]interface{})
+		configMap, ok := val.(map[string]interface{})
+		if !ok {
+			return zerr.ErrBadConfig
+		}
+
 		addDefaultConfigs(configMap)
 
 		name := configMap[nameKey]
@@ -290,25 +311,29 @@ func resetConfigValue(configPath, configName, key string) error {
 		}
 	}
 
-	return zotErrors.ErrConfigNotFound
+	return zerr.ErrConfigNotFound
 }
 
 func setConfigValue(configPath, configName, key, value string) error {
 	if key == nameKey {
-		return zotErrors.ErrIllegalConfigKey
+		return zerr.ErrIllegalConfigKey
 	}
 
 	configs, err := getConfigMapFromFile(configPath)
 	if err != nil {
-		if errors.Is(err, ErrEmptyJSON) {
-			return zotErrors.ErrConfigNotFound
+		if errors.Is(err, zerr.ErrEmptyJSON) {
+			return zerr.ErrConfigNotFound
 		}
 
 		return err
 	}
 
 	for _, val := range configs {
-		configMap := val.(map[string]interface{})
+		configMap, ok := val.(map[string]interface{})
+		if !ok {
+			return zerr.ErrBadConfig
+		}
+
 		addDefaultConfigs(configMap)
 
 		name := configMap[nameKey]
@@ -329,13 +354,13 @@ func setConfigValue(configPath, configName, key, value string) error {
 		}
 	}
 
-	return zotErrors.ErrConfigNotFound
+	return zerr.ErrConfigNotFound
 }
 
 func getAllConfig(configPath, configName string) (string, error) {
 	configs, err := getConfigMapFromFile(configPath)
 	if err != nil {
-		if errors.Is(err, ErrEmptyJSON) {
+		if errors.Is(err, zerr.ErrEmptyJSON) {
 			return "", nil
 		}
 
@@ -345,7 +370,11 @@ func getAllConfig(configPath, configName string) (string, error) {
 	var builder strings.Builder
 
 	for _, value := range configs {
-		configMap := value.(map[string]interface{})
+		configMap, ok := value.(map[string]interface{})
+		if !ok {
+			return "", zerr.ErrBadConfig
+		}
+
 		addDefaultConfigs(configMap)
 
 		name := configMap[nameKey]
@@ -362,12 +391,16 @@ func getAllConfig(configPath, configName string) (string, error) {
 		}
 	}
 
-	return "", zotErrors.ErrConfigNotFound
+	return "", zerr.ErrConfigNotFound
 }
 
 func configNameExists(configs []interface{}, configName string) bool {
 	for _, val := range configs {
-		configMap := val.(map[string]interface{})
+		configMap, ok := val.(map[string]interface{})
+		if !ok {
+			return false
+		}
+
 		if configMap[nameKey] == configName {
 			return true
 		}
@@ -377,16 +410,16 @@ func configNameExists(configs []interface{}, configName string) bool {
 }
 
 const (
-	examples = `  zot config add main https://zot-foo.com:8080
-  zot config main url
-  zot config main --list
-  zot config --list`
+	examples = `  zli config add main https://zot-foo.com:8080
+  zli config main url
+  zli config main --list
+  zli config --list`
 
 	supportedOptions = `
 Useful variables:
   url		zot server URL
   showspinner	show spinner while loading data [true/false]
-  verify-tls	verify TLS Certificate verification of the server [default: true]`
+  verify-tls	enable TLS certificate verification of the server [default: true]`
 
 	nameKey = "_name"
 
@@ -397,8 +430,4 @@ Useful variables:
 
 	showspinnerConfig = "showspinner"
 	verifyTLSConfig   = "verify-tls"
-)
-
-var (
-	ErrEmptyJSON = errors.New("cli: config json is empty")
 )
