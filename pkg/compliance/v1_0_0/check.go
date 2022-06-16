@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -13,8 +14,8 @@ import (
 	"testing"
 
 	godigest "github.com/opencontainers/go-digest"
+	// nolint: goimports
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
-
 	// nolint:golint,stylecheck,revive
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/smartystreets/goconvey/convey/reporting"
@@ -38,7 +39,7 @@ func CheckWorkflows(t *testing.T, config *compliance.Config) {
 		defer outputJSONExit()
 	}
 
-	baseURL := fmt.Sprintf("http://%s:%s", config.Address, config.Port)
+	baseURL := fmt.Sprintf("http://%s", net.JoinHostPort(config.Address, config.Port))
 
 	storageInfo := config.StorageInfo
 
@@ -49,14 +50,14 @@ func CheckWorkflows(t *testing.T, config *compliance.Config) {
 	Convey("Make API calls to the controller", t, func(c C) {
 		Convey("Check version", func() {
 			_, _ = Print("\nCheck version")
-			resp, err := resty.R().Get(baseURL + "/v2/")
+			resp, err := resty.R().Get(baseURL + constants.RoutePrefix + "/")
 			So(err, ShouldBeNil)
 			So(resp.StatusCode(), ShouldEqual, http.StatusOK)
 		})
 
 		Convey("Get repository catalog", func() {
 			_, _ = Print("\nGet repository catalog")
-			resp, err := resty.R().Get(baseURL + "/v2/_catalog")
+			resp, err := resty.R().Get(baseURL + constants.RoutePrefix + constants.ExtCatalogPrefix)
 			So(err, ShouldBeNil)
 			So(resp.StatusCode(), ShouldEqual, http.StatusOK)
 			So(resp.String(), ShouldNotBeEmpty)
@@ -76,7 +77,8 @@ func CheckWorkflows(t *testing.T, config *compliance.Config) {
 			So(err, ShouldBeNil)
 			So(resp.StatusCode(), ShouldEqual, http.StatusAccepted)
 
-			resp, err = resty.R().SetResult(&api.RepositoryList{}).Get(baseURL + "/v2/_catalog")
+			resp, err = resty.R().SetResult(&api.RepositoryList{}).Get(baseURL +
+				constants.RoutePrefix + constants.ExtCatalogPrefix)
 			So(err, ShouldBeNil)
 			So(resp.StatusCode(), ShouldEqual, http.StatusOK)
 			So(resp.String(), ShouldNotBeEmpty)
@@ -1105,14 +1107,14 @@ func outputJSONExit() {
 }
 
 func validateMinifyRawJSON(rawJSON string) string {
-	var j interface{}
+	var jsonData interface{}
 
-	err := json.Unmarshal([]byte(rawJSON), &j)
+	err := json.Unmarshal([]byte(rawJSON), &jsonData)
 	if err != nil {
 		panic(err)
 	}
 
-	rawJSONBytesMinified, err := json.Marshal(j)
+	rawJSONBytesMinified, err := json.Marshal(jsonData)
 	if err != nil {
 		panic(err)
 	}

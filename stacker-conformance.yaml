@@ -1,0 +1,62 @@
+build:
+  from:
+    type: docker
+    url: docker://ghcr.io/project-zot/golang:1.18
+  binds:
+    - . -> /zotcopy
+  run: |
+    export GO111MODULE=on 
+    export GOPATH='/go'
+    export HOME='/root'
+    export PATH='/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+    go get -u github.com/swaggo/swag/cmd/swag
+    mkdir -p /go/src/github.com/project-zot
+    cd /go/src/github.com/project-zot
+    git clone /zotcopy zot
+    cd /go/src/github.com/project-zot/zot
+    make COMMIT=${{COMMIT}} clean binary
+    cat > config.json << EOF
+    {
+      "storage":{
+          "rootDirectory":"/var/lib/registry",
+          "gc": false,
+          "dedupe": false
+      },
+      "http":{
+          "address":"0.0.0.0",
+          "port":"5000"
+      },
+      "log":{
+          "level":"debug"
+      }
+    }
+    EOF
+
+    cat config.json
+
+    mkdir -p /zotcopy/build/binary
+    mkdir -p /zotcopy/build/cert
+    mkdir -p /zotcopy/build/config
+    cp /go/src/github.com/project-zot/zot/bin/zot-linux-amd64 /zotcopy/build/binary
+    cp /go/src/github.com/project-zot/zot/config.json /zotcopy/build/config
+    cp /etc/ssl/certs/ca-certificates.crt /zotcopy/build/cert
+  build_only: true
+
+"${{REPO_NAME:zot}}":
+  from:
+    type: docker
+    url: docker://gcr.io/distroless/base
+  overlay_dirs:
+    - source: ./build/binary
+      dest: /usr/local/bin
+    - source: ./build/cert
+      dest: /etc/ssl/certs
+    - source: ./build/config
+      dest: /etc/zot
+  entrypoint:
+    - /usr/bin/zot-linux-amd64
+  volumes:
+    - /var/lib/registry
+  cmd:
+    - serve
+    - /etc/zot/config.json

@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	goerrors "errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -31,6 +32,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 	vldap "github.com/nmcclain/ldap"
 	notreg "github.com/notaryproject/notation/pkg/registry"
+	distext "github.com/opencontainers/distribution-spec/specs-go/v1/extensions"
 	godigest "github.com/opencontainers/go-digest"
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
@@ -46,6 +48,7 @@ import (
 	"zotregistry.io/zot/pkg/api"
 	"zotregistry.io/zot/pkg/api/config"
 	"zotregistry.io/zot/pkg/api/constants"
+	extconf "zotregistry.io/zot/pkg/extensions/config"
 	"zotregistry.io/zot/pkg/storage"
 	"zotregistry.io/zot/pkg/test"
 )
@@ -148,8 +151,8 @@ func TestObjectStorageController(t *testing.T) {
 		conf := config.New()
 		conf.HTTP.Port = port
 		storageDriverParams := map[string]interface{}{
-			"rootDir": "zot",
-			"name":    storage.S3StorageDriverName,
+			"rootdirectory": "zot",
+			"name":          storage.S3StorageDriverName,
 		}
 		conf.Storage.StorageDriver = storageDriverParams
 		ctlr := api.NewController(conf)
@@ -171,7 +174,7 @@ func TestObjectStorageController(t *testing.T) {
 		endpoint := os.Getenv("S3MOCK_ENDPOINT")
 
 		storageDriverParams := map[string]interface{}{
-			"rootDir":        "zot",
+			"rootdirectory":  "zot",
 			"name":           storage.S3StorageDriverName,
 			"region":         "us-east-2",
 			"bucket":         bucket,
@@ -203,7 +206,7 @@ func TestObjectStorageControllerSubPaths(t *testing.T) {
 		endpoint := os.Getenv("S3MOCK_ENDPOINT")
 
 		storageDriverParams := map[string]interface{}{
-			"rootDir":        "zot",
+			"rootdirectory":  "zot",
 			"name":           storage.S3StorageDriverName,
 			"region":         "us-east-2",
 			"bucket":         bucket,
@@ -1324,7 +1327,8 @@ func (l *testLDAPServer) Bind(bindDN, bindSimplePw string, conn net.Conn) (vldap
 }
 
 func (l *testLDAPServer) Search(boundDN string, req vldap.SearchRequest,
-	conn net.Conn) (vldap.ServerSearchResult, error) {
+	conn net.Conn,
+) (vldap.ServerSearchResult, error) {
 	check := fmt.Sprintf("(uid=%s)", username)
 	if check == req.Filter {
 		return vldap.ServerSearchResult{
@@ -1876,7 +1880,7 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 
 		// everybody should have access to /v2/_catalog
 		resp, err = resty.R().SetBasicAuth(username, passphrase).
-			Get(baseURL + "/v2/_catalog")
+			Get(baseURL + constants.RoutePrefix + constants.ExtCatalogPrefix)
 		So(err, ShouldBeNil)
 		So(resp, ShouldNotBeNil)
 		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
@@ -1893,11 +1897,9 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 
 		// first let's use global based policies
 		// add test user to global policy with create perm
-		conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Users =
-			append(conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Users, "test")
+		conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Users = append(conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Users, "test") //nolint:lll // gofumpt conflicts with lll
 
-		conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions =
-			append(conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions, "create")
+		conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions = append(conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions, "create") //nolint:lll // gofumpt conflicts with lll
 
 		// now it should get 202
 		resp, err = resty.R().SetBasicAuth(username, passphrase).
@@ -1933,8 +1935,7 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 		So(resp.StatusCode(), ShouldEqual, http.StatusForbidden)
 
 		// get tags with read access should get 200
-		conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions =
-			append(conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions, "read")
+		conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions = append(conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions, "read") //nolint:lll // gofumpt conflicts with lll
 
 		resp, err = resty.R().SetBasicAuth(username, passphrase).
 			Get(baseURL + "/v2/" + AuthorizationNamespace + "/tags/list")
@@ -1964,8 +1965,7 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 		So(resp.StatusCode(), ShouldEqual, http.StatusForbidden)
 
 		// add delete perm on repo
-		conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions =
-			append(conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions, "delete")
+		conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions = append(conf.AccessControl.Repositories[AuthorizationAllRepos].Policies[0].Actions, "delete") //nolint:lll // gofumpt conflicts with lll
 
 		// delete blob should get 202
 		resp, err = resty.R().SetBasicAuth(username, passphrase).
@@ -1987,10 +1987,8 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 			DefaultPolicy: []string{},
 		}
 
-		conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Users =
-			append(conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Users, "test")
-		conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions =
-			append(conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions, "create")
+		conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Users = append(conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Users, "test")       //nolint:lll // gofumpt conflicts with lll
+		conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions = append(conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions, "create") //nolint:lll // gofumpt conflicts with lll
 
 		// now it should get 202
 		resp, err = resty.R().SetBasicAuth(username, passphrase).
@@ -2026,8 +2024,7 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 		So(resp.StatusCode(), ShouldEqual, http.StatusForbidden)
 
 		// get tags with read access should get 200
-		conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions =
-			append(conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions, "read")
+		conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions = append(conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions, "read") //nolint:lll // gofumpt conflicts with lll
 
 		resp, err = resty.R().SetBasicAuth(username, passphrase).
 			Get(baseURL + "/v2/" + AuthorizationNamespace + "/tags/list")
@@ -2063,8 +2060,7 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 		So(resp.StatusCode(), ShouldEqual, http.StatusForbidden)
 
 		// add delete perm on repo
-		conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions =
-			append(conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions, "delete")
+		conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions = append(conf.AccessControl.Repositories[AuthorizationNamespace].Policies[0].Actions, "delete") //nolint:lll // gofumpt conflicts with lll
 
 		// delete blob should get 202
 		resp, err = resty.R().SetBasicAuth(username, passphrase).
@@ -2102,6 +2098,9 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
 
 		manifestBlob := resp.Body()
+		var manifest ispec.Manifest
+		err = json.Unmarshal(manifestBlob, &manifest)
+		So(err, ShouldBeNil)
 
 		// put manifest should get 403 without create perm
 		resp, err = resty.R().SetBasicAuth(username, passphrase).SetBody(manifestBlob).
@@ -2111,8 +2110,7 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 		So(resp.StatusCode(), ShouldEqual, http.StatusForbidden)
 
 		// add create perm on repo
-		conf.AccessControl.Repositories["zot-test"].Policies[0].Actions =
-			append(conf.AccessControl.Repositories["zot-test"].Policies[0].Actions, "create")
+		conf.AccessControl.Repositories["zot-test"].Policies[0].Actions = append(conf.AccessControl.Repositories["zot-test"].Policies[0].Actions, "create") //nolint:lll // gofumpt conflicts with lll
 
 		// should get 201 with create perm
 		resp, err = resty.R().SetBasicAuth(username, passphrase).
@@ -2123,25 +2121,99 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 		So(resp, ShouldNotBeNil)
 		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
 
+		// create update config and post it.
+		cblob, cdigest := test.GetRandomImageConfig()
+
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
+			Post(baseURL + "/v2/zot-test/blobs/uploads/")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusAccepted)
+		loc = test.Location(baseURL, resp)
+
+		// uploading blob should get 201
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
+			SetHeader("Content-Length", fmt.Sprintf("%d", len(cblob))).
+			SetHeader("Content-Type", "application/octet-stream").
+			SetQueryParam("digest", cdigest.String()).
+			SetBody(cblob).
+			Put(loc)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+
+		// create updated layer and post it
+		updateBlob := []byte("Hello, blob update!")
+
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
+			Post(baseURL + "/v2/zot-test/blobs/uploads/")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusAccepted)
+		loc = test.Location(baseURL, resp)
+		// uploading blob should get 201
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
+			SetHeader("Content-Length", fmt.Sprintf("%d", len(updateBlob))).
+			SetHeader("Content-Type", "application/octet-stream").
+			SetQueryParam("digest", string(godigest.FromBytes(updateBlob))).
+			SetBody(updateBlob).
+			Put(loc)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+
+		updatedManifest := ispec.Manifest{
+			Config: ispec.Descriptor{
+				MediaType: "application/vnd.oci.image.config.v1+json",
+				Digest:    cdigest,
+				Size:      int64(len(cblob)),
+			},
+			Layers: []ispec.Descriptor{
+				{
+					MediaType: "application/vnd.oci.image.layer.v1.tar",
+					Digest:    godigest.FromBytes(updateBlob),
+					Size:      int64(len(updateBlob)),
+				},
+			},
+		}
+		updatedManifest.SchemaVersion = 2
+		updatedManifestBlob, err := json.Marshal(updatedManifest)
+		So(err, ShouldBeNil)
+
 		// update manifest should get 403 without update perm
-		resp, err = resty.R().SetBasicAuth(username, passphrase).SetBody(manifestBlob).
+		resp, err = resty.R().SetBasicAuth(username, passphrase).SetBody(updatedManifestBlob).
 			Put(baseURL + "/v2/zot-test/manifests/0.0.2")
 		So(err, ShouldBeNil)
 		So(resp, ShouldNotBeNil)
 		So(resp.StatusCode(), ShouldEqual, http.StatusForbidden)
 
+		// get the manifest and check if it's the old one
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
+			Get(baseURL + "/v2/zot-test/manifests/0.0.2")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+		So(resp.Body(), ShouldResemble, manifestBlob)
+
 		// add update perm on repo
-		conf.AccessControl.Repositories["zot-test"].Policies[0].Actions =
-			append(conf.AccessControl.Repositories["zot-test"].Policies[0].Actions, "update")
+		conf.AccessControl.Repositories["zot-test"].Policies[0].Actions = append(conf.AccessControl.Repositories["zot-test"].Policies[0].Actions, "update") //nolint:lll // gofumpt conflicts with lll
 
 		// update manifest should get 201 with update perm
 		resp, err = resty.R().SetBasicAuth(username, passphrase).
 			SetHeader("Content-type", "application/vnd.oci.image.manifest.v1+json").
-			SetBody(manifestBlob).
+			SetBody(updatedManifestBlob).
 			Put(baseURL + "/v2/zot-test/manifests/0.0.2")
 		So(err, ShouldBeNil)
 		So(resp, ShouldNotBeNil)
 		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+
+		// get the manifest and check if it's the new updated one
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
+			Get(baseURL + "/v2/zot-test/manifests/0.0.2")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+		So(resp.Body(), ShouldResemble, updatedManifestBlob)
 
 		// now use default repo policy
 		conf.AccessControl.Repositories["zot-test"].Policies[0].Actions = []string{}
@@ -2288,6 +2360,200 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 	})
 }
 
+func TestAuthorizationWithOnlyDefaultPolicy(t *testing.T) {
+	Convey("Make a new controller", t, func() {
+		const TestRepo = "my-repos/repo"
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+
+		conf := config.New()
+		conf.HTTP.Port = port
+		conf.HTTP.Auth = &config.AuthConfig{}
+		conf.AccessControl = &config.AccessControlConfig{
+			Repositories: config.Repositories{
+				TestRepo: config.PolicyGroup{
+					DefaultPolicy: []string{},
+				},
+			},
+		}
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+		ctlr.Config.Storage.RootDirectory = dir
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		blob := []byte("hello, blob!")
+		digest := godigest.FromBytes(blob).String()
+
+		resp, err := resty.R().Get(baseURL + "/v2/")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+
+		resp, err = resty.R().Get(baseURL + "/v2/_catalog")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+		var e api.Error
+		err = json.Unmarshal(resp.Body(), &e)
+		So(err, ShouldBeNil)
+
+		// should get 403 without create
+		resp, err = resty.R().Post(baseURL + "/v2/" + TestRepo + "/blobs/uploads/")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusForbidden)
+
+		if entry, ok := conf.AccessControl.Repositories[TestRepo]; ok {
+			entry.DefaultPolicy = []string{"create", "read"}
+			conf.AccessControl.Repositories[TestRepo] = entry
+		}
+
+		// now it should get 202
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
+			Post(baseURL + "/v2/" + TestRepo + "/blobs/uploads/")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusAccepted)
+		loc := resp.Header().Get("Location")
+
+		// uploading blob should get 201
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
+			SetHeader("Content-Length", fmt.Sprintf("%d", len(blob))).
+			SetHeader("Content-Type", "application/octet-stream").
+			SetQueryParam("digest", digest).
+			SetBody(blob).
+			Put(baseURL + loc)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+
+		cblob, cdigest := test.GetRandomImageConfig()
+
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
+			Post(baseURL + "/v2/" + TestRepo + "/blobs/uploads/")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusAccepted)
+		loc = test.Location(baseURL, resp)
+
+		// uploading blob should get 201
+		resp, err = resty.R().SetBasicAuth(username, passphrase).
+			SetHeader("Content-Length", fmt.Sprintf("%d", len(cblob))).
+			SetHeader("Content-Type", "application/octet-stream").
+			SetQueryParam("digest", cdigest.String()).
+			SetBody(cblob).
+			Put(loc)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+
+		manifest := ispec.Manifest{
+			Config: ispec.Descriptor{
+				MediaType: "application/vnd.oci.image.config.v1+json",
+				Digest:    cdigest,
+				Size:      int64(len(cblob)),
+			},
+			Layers: []ispec.Descriptor{
+				{
+					MediaType: "application/vnd.oci.image.layer.v1.tar",
+					Digest:    godigest.FromBytes(blob),
+					Size:      int64(len(blob)),
+				},
+			},
+		}
+		manifest.SchemaVersion = 2
+		manifestBlob, err := json.Marshal(manifest)
+		So(err, ShouldBeNil)
+
+		resp, err = resty.R().
+			SetHeader("Content-type", "application/vnd.oci.image.manifest.v1+json").
+			SetBody(manifestBlob).
+			Put(baseURL + "/v2/" + TestRepo + "/manifests/0.0.2")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+
+		updateBlob := []byte("Hello, blob update!")
+
+		resp, err = resty.R().
+			Post(baseURL + "/v2/" + TestRepo + "/blobs/uploads/")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusAccepted)
+		loc = test.Location(baseURL, resp)
+		// uploading blob should get 201
+		resp, err = resty.R().
+			SetHeader("Content-Length", fmt.Sprintf("%d", len(updateBlob))).
+			SetHeader("Content-Type", "application/octet-stream").
+			SetQueryParam("digest", string(godigest.FromBytes(updateBlob))).
+			SetBody(updateBlob).
+			Put(loc)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+
+		updatedManifest := ispec.Manifest{
+			Config: ispec.Descriptor{
+				MediaType: "application/vnd.oci.image.config.v1+json",
+				Digest:    cdigest,
+				Size:      int64(len(cblob)),
+			},
+			Layers: []ispec.Descriptor{
+				{
+					MediaType: "application/vnd.oci.image.layer.v1.tar",
+					Digest:    godigest.FromBytes(updateBlob),
+					Size:      int64(len(updateBlob)),
+				},
+			},
+		}
+		updatedManifest.SchemaVersion = 2
+		updatedManifestBlob, err := json.Marshal(updatedManifest)
+		So(err, ShouldBeNil)
+
+		// update manifest should get 403 without update perm
+		resp, err = resty.R().SetBody(updatedManifestBlob).
+			Put(baseURL + "/v2/" + TestRepo + "/manifests/0.0.2")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusForbidden)
+
+		// get the manifest and check if it's the old one
+		resp, err = resty.R().
+			Get(baseURL + "/v2/" + TestRepo + "/manifests/0.0.2")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+		So(resp.Body(), ShouldResemble, manifestBlob)
+
+		// add update perm on repo
+		if entry, ok := conf.AccessControl.Repositories[TestRepo]; ok {
+			entry.DefaultPolicy = []string{"create", "read", "update"}
+			conf.AccessControl.Repositories[TestRepo] = entry
+		}
+
+		// update manifest should get 201 with update perm
+		resp, err = resty.R().
+			SetHeader("Content-type", "application/vnd.oci.image.manifest.v1+json").
+			SetBody(updatedManifestBlob).
+			Put(baseURL + "/v2/" + TestRepo + "/manifests/0.0.2")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+
+		// get the manifest and check if it's the new updated one
+		resp, err = resty.R().
+			Get(baseURL + "/v2/" + TestRepo + "/manifests/0.0.2")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+		So(resp.Body(), ShouldResemble, updatedManifestBlob)
+	})
+}
+
 func TestInvalidCases(t *testing.T) {
 	Convey("Invalid repo dir", t, func() {
 		port := test.GetFreePort()
@@ -2430,15 +2696,18 @@ func TestCrossRepoMount(t *testing.T) {
 		test.WaitTillServerReady(baseURL)
 
 		params := make(map[string]string)
-		digest := "sha256:63a795ca90aa6e7cca60941e826810a4cd0a2e73ea02bf458241df2a5c973e29"
-		dgst := godigest.Digest(digest)
+
+		var manifestDigest godigest.Digest
+		manifestDigest, _, _ = test.GetOciLayoutDigests("../../test/data/zot-cve-test")
+
+		dgst := manifestDigest
 		name := "zot-cve-test"
-		params["mount"] = digest
+		params["mount"] = string(manifestDigest)
 		params["from"] = name
 
 		client := resty.New()
 		headResponse, err := client.R().SetBasicAuth(username, passphrase).
-			Head(fmt.Sprintf("%s/v2/%s/blobs/%s", baseURL, name, digest))
+			Head(fmt.Sprintf("%s/v2/%s/blobs/%s", baseURL, name, manifestDigest))
 		So(err, ShouldBeNil)
 		So(headResponse.StatusCode(), ShouldEqual, http.StatusOK)
 
@@ -2450,6 +2719,10 @@ func TestCrossRepoMount(t *testing.T) {
 			Post(baseURL + "/v2/zot-c-test/blobs/uploads/")
 		So(err, ShouldBeNil)
 		So(postResponse.StatusCode(), ShouldEqual, http.StatusAccepted)
+		location, err := postResponse.RawResponse.Location()
+		So(err, ShouldBeNil)
+		So(location.String(), ShouldStartWith, fmt.Sprintf("%s%s/zot-c-test/%s/%s",
+			baseURL, constants.RoutePrefix, constants.Blobs, constants.Uploads))
 
 		incorrectParams := make(map[string]string)
 		incorrectParams["mount"] = "sha256:63a795ca90aa6e7dda60941e826810a4cd0a2e73ea02bf458241df2a5c973e29"
@@ -2460,15 +2733,19 @@ func TestCrossRepoMount(t *testing.T) {
 			Post(baseURL + "/v2/zot-y-test/blobs/uploads/")
 		So(err, ShouldBeNil)
 		So(postResponse.StatusCode(), ShouldEqual, http.StatusAccepted)
+		So(test.Location(baseURL, postResponse), ShouldStartWith, fmt.Sprintf("%s%s/zot-y-test/%s/%s",
+			baseURL, constants.RoutePrefix, constants.Blobs, constants.Uploads))
 
 		// Use correct request
 		// This is correct request but it will return 202 because blob is not present in cache.
-		params["mount"] = digest
+		params["mount"] = string(manifestDigest)
 		postResponse, err = client.R().
 			SetBasicAuth(username, passphrase).SetQueryParams(params).
 			Post(baseURL + "/v2/zot-c-test/blobs/uploads/")
 		So(err, ShouldBeNil)
 		So(postResponse.StatusCode(), ShouldEqual, http.StatusAccepted)
+		So(test.Location(baseURL, postResponse), ShouldStartWith, fmt.Sprintf("%s%s/zot-c-test/%s/%s",
+			baseURL, constants.RoutePrefix, constants.Blobs, constants.Uploads))
 
 		// Send same request again
 		postResponse, err = client.R().
@@ -2485,7 +2762,7 @@ func TestCrossRepoMount(t *testing.T) {
 		So(postResponse.StatusCode(), ShouldEqual, http.StatusAccepted)
 
 		headResponse, err = client.R().SetBasicAuth(username, passphrase).
-			Head(fmt.Sprintf("%s/v2/zot-cv-test/blobs/%s", baseURL, digest))
+			Head(fmt.Sprintf("%s/v2/zot-cv-test/blobs/%s", baseURL, manifestDigest))
 		So(err, ShouldBeNil)
 		So(headResponse.StatusCode(), ShouldEqual, http.StatusNotFound)
 
@@ -2500,9 +2777,7 @@ func TestCrossRepoMount(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(postResponse.StatusCode(), ShouldEqual, http.StatusNotFound)
 
-		digest = "sha256:63a795ca90aa6e7cca60941e826810a4cd0a2e73ea02bf458241df2a5c973e29"
-
-		blob := "63a795ca90aa6e7cca60941e826810a4cd0a2e73ea02bf458241df2a5c973e29"
+		blob := manifestDigest.Encoded()
 
 		buf, err := ioutil.ReadFile(path.Join(ctlr.Config.Storage.RootDirectory, "zot-cve-test/blobs/sha256/"+blob))
 		if err != nil {
@@ -2519,12 +2794,14 @@ func TestCrossRepoMount(t *testing.T) {
 		// in cache, now try mount blob request status and it should be 201 because now blob is present in cache
 		// and it should do hard link.
 
-		params["mount"] = digest
+		params["mount"] = string(manifestDigest)
 		postResponse, err = client.R().
 			SetBasicAuth(username, passphrase).SetQueryParams(params).
 			Post(baseURL + "/v2/zot-mount-test/blobs/uploads/")
 		So(err, ShouldBeNil)
 		So(postResponse.StatusCode(), ShouldEqual, http.StatusCreated)
+		So(test.Location(baseURL, postResponse), ShouldEqual, fmt.Sprintf("%s%s/zot-mount-test/%s/%s:%s",
+			baseURL, constants.RoutePrefix, constants.Blobs, godigest.SHA256, blob))
 
 		// Check os.SameFile here
 		cachePath := path.Join(ctlr.Config.Storage.RootDirectory, "zot-d-test", "blobs/sha256", dgst.Hex())
@@ -2541,13 +2818,15 @@ func TestCrossRepoMount(t *testing.T) {
 
 		// Now try another mount request and this time it should be from above uploaded repo i.e zot-mount-test
 		// mount request should pass and should return 201.
-		params["mount"] = digest
+		params["mount"] = string(manifestDigest)
 		params["from"] = "zot-mount-test"
 		postResponse, err = client.R().
 			SetBasicAuth(username, passphrase).SetQueryParams(params).
 			Post(baseURL + "/v2/zot-mount1-test/blobs/uploads/")
 		So(err, ShouldBeNil)
 		So(postResponse.StatusCode(), ShouldEqual, http.StatusCreated)
+		So(test.Location(baseURL, postResponse), ShouldEqual, fmt.Sprintf("%s%s/zot-mount1-test/%s/%s:%s",
+			baseURL, constants.RoutePrefix, constants.Blobs, godigest.SHA256, blob))
 
 		linkPath = path.Join(ctlr.Config.Storage.RootDirectory, "zot-mount1-test", "blobs/sha256", dgst.Hex())
 
@@ -2557,7 +2836,7 @@ func TestCrossRepoMount(t *testing.T) {
 		So(os.SameFile(cacheFi, linkFi), ShouldEqual, true)
 
 		headResponse, err = client.R().SetBasicAuth(username, passphrase).
-			Head(fmt.Sprintf("%s/v2/zot-cv-test/blobs/%s", baseURL, digest))
+			Head(fmt.Sprintf("%s/v2/zot-cv-test/blobs/%s", baseURL, manifestDigest))
 		So(err, ShouldBeNil)
 		So(headResponse.StatusCode(), ShouldEqual, http.StatusOK)
 
@@ -2854,7 +3133,7 @@ func TestParallelRequests(t *testing.T) {
 						for {
 							nbytes, err := reader.Read(buf)
 							if err != nil {
-								if err == io.EOF {
+								if goerrors.Is(err, io.EOF) {
 									break
 								}
 								panic(err)
@@ -2879,7 +3158,7 @@ func TestParallelRequests(t *testing.T) {
 						for {
 							nbytes, err := reader.Read(buf)
 							if err != nil {
-								if err == io.EOF {
+								if goerrors.Is(err, io.EOF) {
 									break
 								}
 								panic(err)
@@ -2931,7 +3210,7 @@ func TestParallelRequests(t *testing.T) {
 			assert.Equal(t, tagResponse.StatusCode(), http.StatusOK, "response status code should return success code")
 
 			repoResponse, err := client.R().SetBasicAuth(username, passphrase).
-				Get(baseURL + "/v2/_catalog")
+				Get(baseURL + constants.RoutePrefix + constants.ExtCatalogPrefix)
 			assert.Equal(t, err, nil, "Error should be nil")
 			assert.Equal(t, repoResponse.StatusCode(), http.StatusOK, "response status code should return success code")
 		})
@@ -3109,11 +3388,11 @@ func TestImageSignatures(t *testing.T) {
 
 			// sign the image
 			err = sign.SignCmd(&options.RootOptions{Verbose: true, Timeout: 1 * time.Minute},
-				sign.KeyOpts{KeyRef: path.Join(tdir, "cosign.key"), PassFunc: generate.GetPass},
+				options.KeyOpts{KeyRef: path.Join(tdir, "cosign.key"), PassFunc: generate.GetPass},
 				options.RegistryOptions{AllowInsecure: true},
 				map[string]interface{}{"tag": "1.0"},
 				[]string{fmt.Sprintf("localhost:%s/%s@%s", port, repoName, digest.String())},
-				"", true, "", "", "", false, false, "")
+				"", "", true, "", "", "", false, false, "")
 			So(err, ShouldBeNil)
 
 			// verify the image
@@ -4343,7 +4622,7 @@ func TestInjectTooManyOpenFiles(t *testing.T) {
 		So(digest, ShouldNotBeNil)
 
 		// Testing router path:  @Router /v2/{name}/manifests/{reference} [put]
-		// nolint: lll
+		//nolint:lll // gofumpt conflicts with lll
 		Convey("Uploading an image manifest blob (when injected simulates that PutImageManifest failed due to 'too many open files' error)", func() {
 			injected := test.InjectFailure(1)
 
@@ -4469,6 +4748,244 @@ func TestInjectTooManyOpenFiles(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(resp.StatusCode(), ShouldEqual, http.StatusInternalServerError)
 		})
+	})
+}
+
+func TestPeriodicGC(t *testing.T) {
+	Convey("Periodic gc enabled for default store", t, func() {
+		repoName := "test"
+
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+
+		logFile, err := ioutil.TempFile("", "zot-log*.txt")
+		So(err, ShouldBeNil)
+		conf.Log.Output = logFile.Name()
+		defer os.Remove(logFile.Name()) // clean up
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.GC = true
+		ctlr.Config.Storage.GCInterval = 1 * time.Hour
+		ctlr.Config.Storage.GCDelay = 1 * time.Second
+
+		err = test.CopyFiles("../../test/data/zot-test", path.Join(dir, repoName))
+		if err != nil {
+			panic(err)
+		}
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		time.Sleep(500 * time.Millisecond)
+
+		data, err := os.ReadFile(logFile.Name())
+		So(err, ShouldBeNil)
+		So(string(data), ShouldContainSubstring,
+			"\"GC\":true,\"Commit\":false,\"GCDelay\":1000000000,\"GCInterval\":3600000000000")
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("Starting periodic background tasks for %s", ctlr.StoreController.DefaultStore.RootDir())) //nolint:lll
+		So(string(data), ShouldNotContainSubstring,
+			fmt.Sprintf("error while running background task for %s", ctlr.StoreController.DefaultStore.RootDir()))
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("executing GC of orphaned blobs for %s", path.Join(ctlr.StoreController.DefaultStore.RootDir(), repoName))) //nolint:lll
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("GC completed for %s", path.Join(ctlr.StoreController.DefaultStore.RootDir(), repoName))) //nolint:lll
+	})
+
+	Convey("Periodic GC enabled for substore", t, func() {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+
+		logFile, err := ioutil.TempFile("", "zot-log*.txt")
+		So(err, ShouldBeNil)
+		conf.Log.Output = logFile.Name()
+		defer os.Remove(logFile.Name()) // clean up
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+		subDir := t.TempDir()
+
+		subPaths := make(map[string]config.StorageConfig)
+
+		subPaths["/a"] = config.StorageConfig{RootDirectory: subDir, GC: true, GCDelay: 1 * time.Second, GCInterval: 24 * time.Hour} //nolint:lll // gofumpt conflicts with lll
+
+		ctlr.Config.Storage.SubPaths = subPaths
+		ctlr.Config.Storage.RootDirectory = dir
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		data, err := os.ReadFile(logFile.Name())
+		So(err, ShouldBeNil)
+		// periodic GC is not enabled for default store
+		So(string(data), ShouldContainSubstring,
+			"\"GCDelay\":3600000000000,\"GCInterval\":0,\"RootDirectory\":\""+dir+"\"")
+		// periodic GC is enabled for sub store
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("\"SubPaths\":{\"/a\":{\"RootDirectory\":\"%s\",\"GC\":true,\"Dedupe\":false,\"Commit\":false,\"GCDelay\":1000000000,\"GCInterval\":86400000000000", subDir)) //nolint:lll // gofumpt conflicts with lll
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("Starting periodic background tasks for %s", ctlr.StoreController.SubStore["/a"].RootDir())) //nolint:lll
+	})
+}
+
+func TestPeriodicTasks(t *testing.T) {
+	Convey("Both periodic gc and periodic scrub enabled for default store with scrubInterval < gcInterval", t, func() {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+
+		logFile, err := ioutil.TempFile("", "zot-log*.txt")
+		So(err, ShouldBeNil)
+		conf.Log.Output = logFile.Name()
+		defer os.Remove(logFile.Name()) // clean up
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.GC = true
+		ctlr.Config.Storage.GCInterval = 12 * time.Hour
+		ctlr.Config.Storage.GCDelay = 1 * time.Second
+		ctlr.Config.Extensions = &extconf.ExtensionConfig{Scrub: &extconf.ScrubConfig{Interval: 8 * time.Hour}}
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		data, err := os.ReadFile(logFile.Name())
+		So(err, ShouldBeNil)
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("Starting periodic background tasks for %s", ctlr.StoreController.DefaultStore.RootDir())) //nolint:lll
+		So(string(data), ShouldNotContainSubstring,
+			fmt.Sprintf("error while running background task for %s", ctlr.StoreController.DefaultStore.RootDir()))
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("Finishing periodic background tasks for %s", ctlr.StoreController.DefaultStore.RootDir())) //nolint:lll
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("Periodic interval for %s set to %s",
+				ctlr.StoreController.DefaultStore.RootDir(), ctlr.Config.Extensions.Scrub.Interval))
+	})
+
+	Convey("Both periodic gc and periodic scrub enabled for default store with gcInterval < scrubInterval", t, func() {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+
+		logFile, err := ioutil.TempFile("", "zot-log*.txt")
+		So(err, ShouldBeNil)
+		conf.Log.Output = logFile.Name()
+		defer os.Remove(logFile.Name()) // clean up
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+		ctlr.Config.Storage.RootDirectory = dir
+		ctlr.Config.Storage.GC = true
+		ctlr.Config.Storage.GCInterval = 8 * time.Hour
+		ctlr.Config.Storage.GCDelay = 1 * time.Second
+		ctlr.Config.Extensions = &extconf.ExtensionConfig{Scrub: &extconf.ScrubConfig{Interval: 12 * time.Hour}}
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		data, err := os.ReadFile(logFile.Name())
+		So(err, ShouldBeNil)
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("Starting periodic background tasks for %s", ctlr.StoreController.DefaultStore.RootDir())) //nolint:lll
+		So(string(data), ShouldNotContainSubstring,
+			fmt.Sprintf("error while running background task for %s", ctlr.StoreController.DefaultStore.RootDir()))
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("Finishing periodic background tasks for %s", ctlr.StoreController.DefaultStore.RootDir())) //nolint:lll
+		So(string(data), ShouldContainSubstring,
+			fmt.Sprintf("Periodic interval for %s set to %s",
+				ctlr.StoreController.DefaultStore.RootDir(), ctlr.Config.Storage.GCInterval))
+	})
+}
+
+func TestDistSpecExtensions(t *testing.T) {
+	Convey("start zot server with search extension", t, func(c C) {
+		conf := config.New()
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+
+		conf.HTTP.Port = port
+
+		defaultVal := true
+
+		searchConfig := &extconf.SearchConfig{
+			Enable: &defaultVal,
+		}
+
+		conf.Extensions = &extconf.ExtensionConfig{
+			Search: searchConfig,
+		}
+
+		logFile, err := ioutil.TempFile("", "zot-log*.txt")
+		So(err, ShouldBeNil)
+		conf.Log.Output = logFile.Name()
+		defer os.Remove(logFile.Name()) // clean up
+
+		ctlr := api.NewController(conf)
+
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		var extensionList distext.ExtensionList
+
+		resp, err := resty.R().Get(baseURL + constants.RoutePrefix + constants.ExtOciDiscoverPrefix)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, 200)
+		err = json.Unmarshal(resp.Body(), &extensionList)
+		So(err, ShouldBeNil)
+		So(len(extensionList.Extensions), ShouldEqual, 1)
+		So(len(extensionList.Extensions[0].Endpoints), ShouldEqual, 1)
+		So(extensionList.Extensions[0].Name, ShouldEqual, "_zot")
+		So(extensionList.Extensions[0].URL, ShouldContainSubstring, "_zot.md")
+		So(extensionList.Extensions[0].Description, ShouldNotBeEmpty)
+		So(extensionList.Extensions[0].Endpoints[0], ShouldEqual, constants.ExtSearchPrefix)
+	})
+
+	Convey("start minimal zot server", t, func(c C) {
+		conf := config.New()
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+
+		conf.HTTP.Port = port
+
+		logFile, err := ioutil.TempFile("", "zot-log*.txt")
+		So(err, ShouldBeNil)
+		conf.Log.Output = logFile.Name()
+		defer os.Remove(logFile.Name()) // clean up
+
+		ctlr := api.NewController(conf)
+
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		var extensionList distext.ExtensionList
+		resp, err := resty.R().Get(baseURL + constants.RoutePrefix + constants.ExtOciDiscoverPrefix)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, 200)
+
+		err = json.Unmarshal(resp.Body(), &extensionList)
+		So(err, ShouldBeNil)
+		So(len(extensionList.Extensions), ShouldEqual, 0)
 	})
 }
 

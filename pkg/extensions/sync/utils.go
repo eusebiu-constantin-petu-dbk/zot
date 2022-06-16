@@ -34,6 +34,10 @@ type ReferenceList struct {
 	References []artifactspec.Descriptor `json:"references"`
 }
 
+func TypeOf(v interface{}) string {
+	return fmt.Sprintf("%T", v)
+}
+
 // getTagFromRef returns a tagged reference from an image reference.
 func getTagFromRef(ref types.ImageReference, log log.Logger) reference.Tagged {
 	tagged, isTagged := ref.DockerReference().(reference.Tagged)
@@ -42,14 +46,6 @@ func getTagFromRef(ref types.ImageReference, log log.Logger) reference.Tagged {
 	}
 
 	return tagged
-}
-
-// getRepoFromRef returns repo name from a registry ImageReference.
-func getRepoFromRef(ref types.ImageReference, registryDomain string) string {
-	imageName := strings.Replace(ref.DockerReference().Name(), registryDomain, "", 1)
-	imageName = strings.TrimPrefix(imageName, "/")
-
-	return imageName
 }
 
 // parseRepositoryReference parses input into a reference.Named, and verifies that it names a repository, not an image.
@@ -82,7 +78,8 @@ func filterRepos(repos []string, contentList []Content, log log.Logger) map[int]
 
 			matched, err := glob.Match(prefix, repo)
 			if err != nil {
-				log.Error().Err(err).Str("pattern",
+				log.Error().Str("errorType", TypeOf(err)).
+					Err(err).Str("pattern",
 					prefix).Msg("error while parsing glob pattern, skipping it...")
 
 				continue
@@ -206,7 +203,8 @@ func getFileCredentials(filepath string) (CredentialsFile, error) {
 }
 
 func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Credentials,
-	log log.Logger) (*resty.Client, *url.URL, error) {
+	log log.Logger,
+) (*resty.Client, *url.URL, error) {
 	client := resty.New()
 
 	if !common.Contains(regCfg.URLs, upstreamURL) {
@@ -215,7 +213,8 @@ func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Crede
 
 	registryURL, err := url.Parse(upstreamURL)
 	if err != nil {
-		log.Error().Err(err).Str("url", upstreamURL).Msg("couldn't parse url")
+		log.Error().Str("errorType", TypeOf(err)).
+			Err(err).Str("url", upstreamURL).Msg("couldn't parse url")
 
 		return nil, nil, err
 	}
@@ -228,7 +227,8 @@ func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Crede
 
 		caCert, err := ioutil.ReadFile(caCertPath)
 		if err != nil {
-			log.Error().Err(err).Msg("couldn't read CA certificate")
+			log.Error().Str("errorType", TypeOf(err)).
+				Err(err).Msg("couldn't read CA certificate")
 
 			return nil, nil, err
 		}
@@ -240,7 +240,8 @@ func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Crede
 
 		cert, err := tls.LoadX509KeyPair(clientCert, clientKey)
 		if err != nil {
-			log.Error().Err(err).Msg("couldn't read certificates key pairs")
+			log.Error().Str("errorType", TypeOf(err)).
+				Err(err).Msg("couldn't read certificates key pairs")
 
 			return nil, nil, err
 		}
@@ -258,11 +259,14 @@ func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Crede
 		client.SetBasicAuth(credentials.Username, credentials.Password)
 	}
 
+	client.SetRedirectPolicy(resty.FlexibleRedirectPolicy(httpMaxRedirectsCount))
+
 	return client, registryURL, nil
 }
 
 func pushSyncedLocalImage(localRepo, tag, localCachePath string,
-	imageStore storage.ImageStore, log log.Logger) error {
+	imageStore storage.ImageStore, log log.Logger,
+) error {
 	log.Info().Msgf("pushing synced local image %s/%s:%s to local registry", localCachePath, localRepo, tag)
 
 	metrics := monitoring.NewMetricsServer(false, log)
@@ -270,7 +274,8 @@ func pushSyncedLocalImage(localRepo, tag, localCachePath string,
 
 	manifestContent, _, _, err := cacheImageStore.GetImageManifest(localRepo, tag)
 	if err != nil {
-		log.Error().Err(err).Str("dir", path.Join(cacheImageStore.RootDir(), localRepo)).
+		log.Error().Str("errorType", TypeOf(err)).
+			Err(err).Str("dir", path.Join(cacheImageStore.RootDir(), localRepo)).
 			Msg("couldn't find index.json")
 
 		return err
@@ -279,7 +284,8 @@ func pushSyncedLocalImage(localRepo, tag, localCachePath string,
 	var manifest ispec.Manifest
 
 	if err := json.Unmarshal(manifestContent, &manifest); err != nil {
-		log.Error().Err(err).Str("dir", path.Join(cacheImageStore.RootDir(), localRepo)).
+		log.Error().Str("errorType", TypeOf(err)).
+			Err(err).Str("dir", path.Join(cacheImageStore.RootDir(), localRepo)).
 			Msg("invalid JSON")
 
 		return err
@@ -288,46 +294,47 @@ func pushSyncedLocalImage(localRepo, tag, localCachePath string,
 	for _, blob := range manifest.Layers {
 		blobReader, _, err := cacheImageStore.GetBlob(localRepo, blob.Digest.String(), blob.MediaType)
 		if err != nil {
-			log.Error().Err(err).Str("dir", path.Join(cacheImageStore.RootDir(),
+			log.Error().Str("errorType", TypeOf(err)).
+				Err(err).Str("dir", path.Join(cacheImageStore.RootDir(),
 				localRepo)).Str("blob digest", blob.Digest.String()).Msg("couldn't read blob")
 
 			return err
 		}
 
-		_, _, err = imageStore.FullBlobUpload(localRepo, blobReader, blob.Digest.String())
-		if err != nil {
-			log.Error().Err(err).Str("blob digest", blob.Digest.String()).Msg("couldn't upload blob")
+		if found, _, _ := imageStore.CheckBlob(localRepo, blob.Digest.String()); !found {
+			_, _, err = imageStore.FullBlobUpload(localRepo, blobReader, blob.Digest.String())
+			if err != nil {
+				log.Error().Str("errorType", TypeOf(err)).
+					Err(err).Str("blob digest", blob.Digest.String()).Msg("couldn't upload blob")
 
-			return err
+				return err
+			}
 		}
 	}
 
 	blobReader, _, err := cacheImageStore.GetBlob(localRepo, manifest.Config.Digest.String(), manifest.Config.MediaType)
 	if err != nil {
-		log.Error().Err(err).Str("dir", path.Join(cacheImageStore.RootDir(),
+		log.Error().Str("errorType", TypeOf(err)).
+			Err(err).Str("dir", path.Join(cacheImageStore.RootDir(),
 			localRepo)).Str("blob digest", manifest.Config.Digest.String()).Msg("couldn't read config blob")
 
 		return err
 	}
 
-	_, _, err = imageStore.FullBlobUpload(localRepo, blobReader, manifest.Config.Digest.String())
-	if err != nil {
-		log.Error().Err(err).Str("blob digest", manifest.Config.Digest.String()).Msg("couldn't upload config blob")
+	if found, _, _ := imageStore.CheckBlob(localRepo, manifest.Config.Digest.String()); !found {
+		_, _, err = imageStore.FullBlobUpload(localRepo, blobReader, manifest.Config.Digest.String())
+		if err != nil {
+			log.Error().Str("errorType", TypeOf(err)).
+				Err(err).Str("blob digest", manifest.Config.Digest.String()).Msg("couldn't upload config blob")
 
-		return err
+			return err
+		}
 	}
 
 	_, err = imageStore.PutImageManifest(localRepo, tag, ispec.MediaTypeImageManifest, manifestContent)
 	if err != nil {
-		log.Error().Err(err).Msg("couldn't upload manifest")
-
-		return err
-	}
-
-	log.Info().Msgf("removing temporary cached synced repo %s", path.Join(cacheImageStore.RootDir(), localRepo))
-
-	if err := os.RemoveAll(cacheImageStore.RootDir()); err != nil {
-		log.Error().Err(err).Msg("couldn't remove locally cached sync repo")
+		log.Error().Str("errorType", TypeOf(err)).
+			Err(err).Msg("couldn't upload manifest")
 
 		return err
 	}
@@ -362,17 +369,9 @@ func getImageRef(registryDomain, repo, tag string) (types.ImageReference, error)
 }
 
 // get a local ImageReference used to temporary store one synced image.
-func getLocalImageRef(imageStore storage.ImageStore, repo, tag string) (types.ImageReference, string, error) {
-	uuid, err := guuid.NewV4()
-	// hard to reach test case, injected error, see pkg/test/dev.go
-	if err := test.Error(err); err != nil {
-		return nil, "", err
-	}
-
-	localCachePath := path.Join(imageStore.RootDir(), repo, SyncBlobUploadDir, uuid.String())
-
-	if err = os.MkdirAll(path.Join(localCachePath, repo), storage.DefaultDirPerms); err != nil {
-		return nil, "", err
+func getLocalImageRef(localCachePath, repo, tag string) (types.ImageReference, error) {
+	if _, err := os.ReadDir(localCachePath); err != nil {
+		return nil, err
 	}
 
 	localRepo := path.Join(localCachePath, repo)
@@ -380,10 +379,42 @@ func getLocalImageRef(imageStore storage.ImageStore, repo, tag string) (types.Im
 
 	localImageRef, err := layout.ParseReference(localTaggedRepo)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
-	return localImageRef, localCachePath, nil
+	return localImageRef, nil
+}
+
+// Returns the localCachePath with an UUID at the end. Only to be called once per repo.
+func getLocalCachePath(imageStore storage.ImageStore, repo string) (string, error) {
+	localRepoPath := path.Join(imageStore.RootDir(), repo, SyncBlobUploadDir)
+	// check if SyncBlobUploadDir exists, create if not
+	var err error
+	if _, err = os.ReadDir(localRepoPath); os.IsNotExist(err) {
+		if err = os.MkdirAll(localRepoPath, storage.DefaultDirPerms); err != nil {
+			return "", err
+		}
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	// create uuid folder
+	uuid, err := guuid.NewV4()
+	// hard to reach test case, injected error, see pkg/test/dev.go
+	if err := test.Error(err); err != nil {
+		return "", err
+	}
+
+	localCachePath := path.Join(localRepoPath, uuid.String())
+
+	cachedRepoPath := path.Join(localCachePath, repo)
+	if err = os.MkdirAll(cachedRepoPath, storage.DefaultDirPerms); err != nil {
+		return "", err
+	}
+
+	return localCachePath, nil
 }
 
 // canSkipImage returns whether or not we already synced this image.
@@ -395,7 +426,8 @@ func canSkipImage(repo, tag, digest string, imageStore storage.ImageStore, log l
 			return false, nil
 		}
 
-		log.Error().Err(err).Msgf("couldn't get local image %s:%s manifest", repo, tag)
+		log.Error().Str("errorType", TypeOf(err)).
+			Err(err).Msgf("couldn't get local image %s:%s manifest", repo, tag)
 
 		return false, err
 	}
@@ -412,9 +444,8 @@ func canSkipImage(repo, tag, digest string, imageStore storage.ImageStore, log l
 func manifestsEqual(manifest1, manifest2 ispec.Manifest) bool {
 	if manifest1.Config.Digest == manifest2.Config.Digest &&
 		manifest1.Config.MediaType == manifest2.Config.MediaType &&
-		manifest1.Config.Size == manifest2.Config.Size &&
-		len(manifest1.Layers) == len(manifest2.Layers) {
-		if descriptorEqual(manifest1.Layers, manifest2.Layers) {
+		manifest1.Config.Size == manifest2.Config.Size {
+		if descriptorsEqual(manifest1.Layers, manifest2.Layers) {
 			return true
 		}
 	}
@@ -423,31 +454,35 @@ func manifestsEqual(manifest1, manifest2 ispec.Manifest) bool {
 }
 
 func artifactDescriptorsEqual(desc1, desc2 []artifactspec.Descriptor) bool {
-	if len(desc1) == len(desc2) {
-		for id, desc := range desc1 {
-			if desc.Digest == desc2[id].Digest &&
-				desc.Size == desc2[id].Size &&
-				desc.MediaType == desc2[id].MediaType &&
-				desc.ArtifactType == desc2[id].ArtifactType {
-				return true
-			}
+	if len(desc1) != len(desc2) {
+		return false
+	}
+
+	for id, desc := range desc1 {
+		if desc.Digest != desc2[id].Digest ||
+			desc.Size != desc2[id].Size ||
+			desc.MediaType != desc2[id].MediaType ||
+			desc.ArtifactType != desc2[id].ArtifactType {
+			return false
 		}
 	}
 
-	return false
+	return true
 }
 
-func descriptorEqual(desc1, desc2 []ispec.Descriptor) bool {
-	if len(desc1) == len(desc2) {
-		for id, desc := range desc1 {
-			if desc.Digest == desc2[id].Digest &&
-				desc.Size == desc2[id].Size &&
-				desc.MediaType == desc2[id].MediaType &&
-				desc.Annotations[static.SignatureAnnotationKey] == desc2[id].Annotations[static.SignatureAnnotationKey] {
-				return true
-			}
+func descriptorsEqual(desc1, desc2 []ispec.Descriptor) bool {
+	if len(desc1) != len(desc2) {
+		return false
+	}
+
+	for id, desc := range desc1 {
+		if desc.Digest != desc2[id].Digest ||
+			desc.Size != desc2[id].Size ||
+			desc.MediaType != desc2[id].MediaType ||
+			desc.Annotations[static.SignatureAnnotationKey] != desc2[id].Annotations[static.SignatureAnnotationKey] {
+			return false
 		}
 	}
 
-	return false
+	return true
 }

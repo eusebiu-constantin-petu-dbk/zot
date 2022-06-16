@@ -18,6 +18,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"gopkg.in/yaml.v2"
 	zotErrors "zotregistry.io/zot/errors"
+	"zotregistry.io/zot/pkg/api/constants"
 )
 
 type SearchService interface {
@@ -35,6 +36,8 @@ type SearchService interface {
 		channel chan stringResult, wtgrp *sync.WaitGroup)
 	getFixedTagsForCVE(ctx context.Context, config searchConfig, username, password, imageName, cvid string,
 		channel chan stringResult, wtgrp *sync.WaitGroup)
+	getRepos(ctx context.Context, config searchConfig, username, password string,
+		channel chan stringResult, wtgrp *sync.WaitGroup)
 }
 
 type searchService struct{}
@@ -44,12 +47,13 @@ func NewSearchService() SearchService {
 }
 
 func (service searchService) getImageByName(ctx context.Context, config searchConfig,
-	username, password, imageName string, rch chan stringResult, wtgrp *sync.WaitGroup) {
+	username, password, imageName string, rch chan stringResult, wtgrp *sync.WaitGroup,
+) {
 	defer wtgrp.Done()
 	defer close(rch)
 
 	var localWg sync.WaitGroup
-	rlim := newSmoothRateLimiter(ctx, &localWg, rch)
+	rlim := newSmoothRateLimiter(&localWg, rch)
 
 	localWg.Add(1)
 
@@ -62,13 +66,15 @@ func (service searchService) getImageByName(ctx context.Context, config searchCo
 }
 
 func (service searchService) getAllImages(ctx context.Context, config searchConfig, username, password string,
-	rch chan stringResult, wtgrp *sync.WaitGroup) {
+	rch chan stringResult, wtgrp *sync.WaitGroup,
+) {
 	defer wtgrp.Done()
 	defer close(rch)
 
 	catalog := &catalogResponse{}
 
-	catalogEndPoint, err := combineServerAndEndpointURL(*config.servURL, "/v2/_catalog")
+	catalogEndPoint, err := combineServerAndEndpointURL(*config.servURL, fmt.Sprintf("%s%s",
+		constants.RoutePrefix, constants.ExtCatalogPrefix))
 	if err != nil {
 		if isContextDone(ctx) {
 			return
@@ -90,7 +96,7 @@ func (service searchService) getAllImages(ctx context.Context, config searchConf
 
 	var localWg sync.WaitGroup
 
-	rlim := newSmoothRateLimiter(ctx, &localWg, rch)
+	rlim := newSmoothRateLimiter(&localWg, rch)
 
 	localWg.Add(1)
 
@@ -106,7 +112,8 @@ func (service searchService) getAllImages(ctx context.Context, config searchConf
 }
 
 func getImage(ctx context.Context, config searchConfig, username, password, imageName string,
-	rch chan stringResult, wtgrp *sync.WaitGroup, pool *requestsPool) {
+	rch chan stringResult, wtgrp *sync.WaitGroup, pool *requestsPool,
+) {
 	defer wtgrp.Done()
 
 	tagListEndpoint, err := combineServerAndEndpointURL(*config.servURL, fmt.Sprintf("/v2/%s/tags/list", imageName))
@@ -139,7 +146,8 @@ func getImage(ctx context.Context, config searchConfig, username, password, imag
 }
 
 func (service searchService) getImagesByCveID(ctx context.Context, config searchConfig, username,
-	password, cvid string, rch chan stringResult, wtgrp *sync.WaitGroup) {
+	password, cvid string, rch chan stringResult, wtgrp *sync.WaitGroup,
+) {
 	defer wtgrp.Done()
 	defer close(rch)
 
@@ -176,7 +184,7 @@ func (service searchService) getImagesByCveID(ctx context.Context, config search
 
 	var localWg sync.WaitGroup
 
-	rlim := newSmoothRateLimiter(ctx, &localWg, rch)
+	rlim := newSmoothRateLimiter(&localWg, rch)
 	localWg.Add(1)
 
 	go rlim.startRateLimiter(ctx)
@@ -193,7 +201,8 @@ func (service searchService) getImagesByCveID(ctx context.Context, config search
 }
 
 func (service searchService) getImagesByDigest(ctx context.Context, config searchConfig, username,
-	password string, digest string, rch chan stringResult, wtgrp *sync.WaitGroup) {
+	password string, digest string, rch chan stringResult, wtgrp *sync.WaitGroup,
+) {
 	defer wtgrp.Done()
 	defer close(rch)
 
@@ -230,7 +239,7 @@ func (service searchService) getImagesByDigest(ctx context.Context, config searc
 
 	var localWg sync.WaitGroup
 
-	rlim := newSmoothRateLimiter(ctx, &localWg, rch)
+	rlim := newSmoothRateLimiter(&localWg, rch)
 	localWg.Add(1)
 
 	go rlim.startRateLimiter(ctx)
@@ -247,7 +256,8 @@ func (service searchService) getImagesByDigest(ctx context.Context, config searc
 }
 
 func (service searchService) getImageByNameAndCVEID(ctx context.Context, config searchConfig, username,
-	password, imageName, cvid string, rch chan stringResult, wtgrp *sync.WaitGroup) {
+	password, imageName, cvid string, rch chan stringResult, wtgrp *sync.WaitGroup,
+) {
 	defer wtgrp.Done()
 	defer close(rch)
 
@@ -284,7 +294,7 @@ func (service searchService) getImageByNameAndCVEID(ctx context.Context, config 
 
 	var localWg sync.WaitGroup
 
-	rlim := newSmoothRateLimiter(ctx, &localWg, rch)
+	rlim := newSmoothRateLimiter(&localWg, rch)
 	localWg.Add(1)
 
 	go rlim.startRateLimiter(ctx)
@@ -305,7 +315,8 @@ func (service searchService) getImageByNameAndCVEID(ctx context.Context, config 
 }
 
 func (service searchService) getCveByImage(ctx context.Context, config searchConfig, username, password,
-	imageName string, rch chan stringResult, wtgrp *sync.WaitGroup) {
+	imageName string, rch chan stringResult, wtgrp *sync.WaitGroup,
+) {
 	defer wtgrp.Done()
 	defer close(rch)
 
@@ -358,12 +369,20 @@ func (service searchService) getCveByImage(ctx context.Context, config searchCon
 }
 
 func groupCVEsBySeverity(cveList []cve) []cve {
-	high := make([]cve, 0)
-	med := make([]cve, 0)
-	low := make([]cve, 0)
+	var (
+		unknown  = make([]cve, 0)
+		none     = make([]cve, 0)
+		high     = make([]cve, 0)
+		med      = make([]cve, 0)
+		low      = make([]cve, 0)
+		critical = make([]cve, 0)
+	)
 
 	for _, cve := range cveList {
 		switch cve.Severity {
+		case "NONE":
+			none = append(none, cve)
+
 		case "LOW":
 			low = append(low, cve)
 
@@ -372,10 +391,25 @@ func groupCVEsBySeverity(cveList []cve) []cve {
 
 		case "HIGH":
 			high = append(high, cve)
+
+		case "CRITICAL":
+			critical = append(critical, cve)
+
+		default:
+			unknown = append(unknown, cve)
 		}
 	}
+	vulnsCount := len(unknown) + len(none) + len(high) + len(med) + len(low) + len(critical)
+	vulns := make([]cve, 0, vulnsCount)
 
-	return append(append(high, med...), low...)
+	vulns = append(vulns, critical...)
+	vulns = append(vulns, high...)
+	vulns = append(vulns, med...)
+	vulns = append(vulns, low...)
+	vulns = append(vulns, none...)
+	vulns = append(vulns, unknown...)
+
+	return vulns
 }
 
 func isContextDone(ctx context.Context) bool {
@@ -388,7 +422,8 @@ func isContextDone(ctx context.Context) bool {
 }
 
 func (service searchService) getFixedTagsForCVE(ctx context.Context, config searchConfig,
-	username, password, imageName, cvid string, rch chan stringResult, wtgrp *sync.WaitGroup) {
+	username, password, imageName, cvid string, rch chan stringResult, wtgrp *sync.WaitGroup,
+) {
 	defer wtgrp.Done()
 	defer close(rch)
 
@@ -425,7 +460,7 @@ func (service searchService) getFixedTagsForCVE(ctx context.Context, config sear
 
 	var localWg sync.WaitGroup
 
-	rlim := newSmoothRateLimiter(ctx, &localWg, rch)
+	rlim := newSmoothRateLimiter(&localWg, rch)
 	localWg.Add(1)
 
 	go rlim.startRateLimiter(ctx)
@@ -443,8 +478,9 @@ func (service searchService) getFixedTagsForCVE(ctx context.Context, config sear
 // errors are returned in the stringResult channel, the unmarshalled payload is in resultPtr.
 func (service searchService) makeGraphQLQuery(ctx context.Context, config searchConfig,
 	username, password, query string,
-	resultPtr interface{}) error {
-	endPoint, err := combineServerAndEndpointURL(*config.servURL, "/query")
+	resultPtr interface{},
+) error {
+	endPoint, err := combineServerAndEndpointURL(*config.servURL, constants.ExtSearchPrefix)
 	if err != nil {
 		return err
 	}
@@ -458,7 +494,8 @@ func (service searchService) makeGraphQLQuery(ctx context.Context, config search
 }
 
 func addManifestCallToPool(ctx context.Context, config searchConfig, pool *requestsPool,
-	username, password, imageName, tagName string, rch chan stringResult, wtgrp *sync.WaitGroup) {
+	username, password, imageName, tagName string, rch chan stringResult, wtgrp *sync.WaitGroup,
+) {
 	defer wtgrp.Done()
 
 	resultManifest := manifestResponse{}
@@ -804,6 +841,42 @@ func getCVETableWriter(writer io.Writer) *tablewriter.Table {
 	table.SetColMinWidth(colCVETitleIndex, cveTitleWidth)
 
 	return table
+}
+
+func (service searchService) getRepos(ctx context.Context, config searchConfig, username, password string,
+	rch chan stringResult, wtgrp *sync.WaitGroup,
+) {
+	defer wtgrp.Done()
+	defer close(rch)
+
+	catalog := &catalogResponse{}
+
+	catalogEndPoint, err := combineServerAndEndpointURL(*config.servURL, fmt.Sprintf("%s%s",
+		constants.RoutePrefix, constants.ExtCatalogPrefix))
+	if err != nil {
+		if isContextDone(ctx) {
+			return
+		}
+		rch <- stringResult{"", err}
+
+		return
+	}
+
+	_, err = makeGETRequest(ctx, catalogEndPoint, username, password, *config.verifyTLS, catalog)
+	if err != nil {
+		if isContextDone(ctx) {
+			return
+		}
+		rch <- stringResult{"", err}
+
+		return
+	}
+
+	fmt.Fprintln(config.resultWriter, "\n\nREPOSITORY NAME")
+
+	for _, repo := range catalog.Repositories {
+		fmt.Fprintln(config.resultWriter, repo)
+	}
 }
 
 const (

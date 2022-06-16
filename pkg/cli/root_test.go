@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	distspec "github.com/opencontainers/distribution-spec/specs-go"
 	. "github.com/smartystreets/goconvey/convey"
 	"gopkg.in/resty.v1"
 	"zotregistry.io/zot/pkg/api"
@@ -175,6 +174,62 @@ func TestVerify(t *testing.T) {
 		So(func() { _ = cli.NewServerRootCmd().Execute() }, ShouldNotPanic)
 	})
 
+	Convey("Test verify default authorization", t, func(c C) {
+		tmpfile, err := ioutil.TempFile("", "zot-test*.json")
+		So(err, ShouldBeNil)
+		defer os.Remove(tmpfile.Name()) // clean up
+		content := []byte(`{"storage":{"rootDirectory":"/tmp/zot"},
+		 					"http":{"address":"127.0.0.1","port":"8080","realm":"zot",
+							 "accessControl":{"**":{"defaultPolicy": ["read", "create"]},
+							 "/repo":{"defaultPolicy": ["read", "create"]}
+							 }}}`)
+		_, err = tmpfile.Write(content)
+		So(err, ShouldBeNil)
+		err = tmpfile.Close()
+		So(err, ShouldBeNil)
+		os.Args = []string{"cli_test", "verify", tmpfile.Name()}
+		So(func() { _ = cli.NewServerRootCmd().Execute() }, ShouldNotPanic)
+	})
+
+	Convey("Test verify default authorization fail", t, func(c C) {
+		tmpfile, err := ioutil.TempFile("", "zot-test*.json")
+		So(err, ShouldBeNil)
+		defer os.Remove(tmpfile.Name()) // clean up
+		content := []byte(`{"storage":{"rootDirectory":"/tmp/zot"},
+		 					"http":{"address":"127.0.0.1","port":"8080","realm":"zot",
+							 "accessControl":{"**":{"defaultPolicy": ["read", "create"]},
+							 "/repo":{"defaultPolicy": ["read", "create"]},
+							 "adminPolicy":{"users":["admin"],
+							 "actions":["read","create","update","delete"]}
+							 }}}`)
+		_, err = tmpfile.Write(content)
+		So(err, ShouldBeNil)
+		err = tmpfile.Close()
+		So(err, ShouldBeNil)
+		os.Args = []string{"cli_test", "verify", tmpfile.Name()}
+		So(func() { _ = cli.NewServerRootCmd().Execute() }, ShouldPanic)
+	})
+
+	Convey("Test verify default authorization fail", t, func(c C) {
+		tmpfile, err := ioutil.TempFile("", "zot-test*.json")
+		So(err, ShouldBeNil)
+		defer os.Remove(tmpfile.Name()) // clean up
+		content := []byte(`{"storage":{"rootDirectory":"/tmp/zot"},
+							"http":{"address":"127.0.0.1","port":"8080","realm":"zot",
+							"accessControl":{"**":{"defaultPolicy": ["read", "create"]},
+							"/repo":{"defaultPolicy": ["read", "create"]},
+							"/repo2":{"policies": [{
+								 "users": ["charlie"],
+								 "actions": ["read", "create", "update"]}]}
+							}}}`)
+		_, err = tmpfile.Write(content)
+		So(err, ShouldBeNil)
+		err = tmpfile.Close()
+		So(err, ShouldBeNil)
+		os.Args = []string{"cli_test", "verify", tmpfile.Name()}
+		So(func() { _ = cli.NewServerRootCmd().Execute() }, ShouldPanic)
+	})
+
 	Convey("Test verify w/ sync and w/o filesystem storage", t, func(c C) {
 		tmpfile, err := ioutil.TempFile("", "zot-test*.json")
 		So(err, ShouldBeNil)
@@ -279,6 +334,69 @@ func TestVerify(t *testing.T) {
 		So(func() { _ = cli.NewServerRootCmd().Execute() }, ShouldPanic)
 	})
 
+	Convey("Test verify config with unknown keys", t, func(c C) {
+		tmpfile, err := ioutil.TempFile("", "zot-test*.json")
+		So(err, ShouldBeNil)
+		defer os.Remove(tmpfile.Name()) // clean up
+		content := []byte(`{"distSpecVersion": "1.0.0", "storage": {"rootDirectory": "/tmp/zot"},
+							"http": {"url": "127.0.0.1", "port": "8080", "ReadOnly": false},
+							"log": {"level": "debug"}}`)
+		_, err = tmpfile.Write(content)
+		So(err, ShouldBeNil)
+		err = tmpfile.Close()
+		So(err, ShouldBeNil)
+		os.Args = []string{"cli_test", "verify", tmpfile.Name()}
+		So(func() { _ = cli.NewServerRootCmd().Execute() }, ShouldPanic)
+	})
+
+	Convey("Test verify config with missing basedn key", t, func(c C) {
+		tmpfile, err := ioutil.TempFile("", "zot-test*.json")
+		So(err, ShouldBeNil)
+		defer os.Remove(tmpfile.Name()) // clean up
+		content := []byte(`{"distSpecVersion": "1.0.0", "storage": {"rootDirectory": "/tmp/zot"},
+							"http": {"auth": {"ldap": {"address": "ldap", "userattribute": "uid"}},
+							"address": "127.0.0.1", "port": "8080", "ReadOnly": false},
+							"log": {"level": "debug"}}`)
+		_, err = tmpfile.Write(content)
+		So(err, ShouldBeNil)
+		err = tmpfile.Close()
+		So(err, ShouldBeNil)
+		os.Args = []string{"cli_test", "verify", tmpfile.Name()}
+		So(func() { _ = cli.NewServerRootCmd().Execute() }, ShouldPanic)
+	})
+
+	Convey("Test verify config with missing address key", t, func(c C) {
+		tmpfile, err := ioutil.TempFile("", "zot-test*.json")
+		So(err, ShouldBeNil)
+		defer os.Remove(tmpfile.Name()) // clean up
+		content := []byte(`{"distSpecVersion": "1.0.0", "storage": {"rootDirectory": "/tmp/zot"},
+							"http": {"auth": {"ldap": {"basedn": "ou=Users,dc=example,dc=org", "userattribute": "uid"}},
+							"address": "127.0.0.1", "port": "8080", "ReadOnly": false},
+							"log": {"level": "debug"}}`)
+		_, err = tmpfile.Write(content)
+		So(err, ShouldBeNil)
+		err = tmpfile.Close()
+		So(err, ShouldBeNil)
+		os.Args = []string{"cli_test", "verify", tmpfile.Name()}
+		So(func() { _ = cli.NewServerRootCmd().Execute() }, ShouldPanic)
+	})
+
+	Convey("Test verify config with missing userattribute key", t, func(c C) {
+		tmpfile, err := ioutil.TempFile("", "zot-test*.json")
+		So(err, ShouldBeNil)
+		defer os.Remove(tmpfile.Name()) // clean up
+		content := []byte(`{"distSpecVersion": "1.0.0", "storage": {"rootDirectory": "/tmp/zot"},
+							"http": {"auth": {"ldap": {"basedn": "ou=Users,dc=example,dc=org", "address": "ldap"}},
+							"address": "127.0.0.1", "port": "8080", "ReadOnly": false},
+							"log": {"level": "debug"}}`)
+		_, err = tmpfile.Write(content)
+		So(err, ShouldBeNil)
+		err = tmpfile.Close()
+		So(err, ShouldBeNil)
+		os.Args = []string{"cli_test", "verify", tmpfile.Name()}
+		So(func() { _ = cli.NewServerRootCmd().Execute() }, ShouldPanic)
+	})
+
 	Convey("Test verify good config", t, func(c C) {
 		tmpfile, err := ioutil.TempFile("", "zot-test*.json")
 		So(err, ShouldBeNil)
@@ -313,6 +431,8 @@ func TestGC(t *testing.T) {
 		err = cli.LoadConfiguration(config, "../../examples/config-gc.json")
 		So(err, ShouldBeNil)
 		So(config.Storage.GCDelay, ShouldNotEqual, storage.DefaultGCDelay)
+		err = cli.LoadConfiguration(config, "../../examples/config-gc-periodic.json")
+		So(err, ShouldBeNil)
 	})
 
 	Convey("Test GC config corner cases", t, func(c C) {
@@ -337,10 +457,66 @@ func TestGC(t *testing.T) {
 			So(err, ShouldBeNil)
 		})
 
+		Convey("GC interval without GC", func() {
+			config := config.New()
+			err = json.Unmarshal(contents, config)
+			config.Storage.GC = false
+			config.Storage.GCDelay = 0
+			config.Storage.GCInterval = 24 * time.Hour
+
+			file, err := ioutil.TempFile("", "gc-config-*.json")
+			So(err, ShouldBeNil)
+			defer os.Remove(file.Name())
+
+			contents, err = json.MarshalIndent(config, "", " ")
+			So(err, ShouldBeNil)
+
+			err = ioutil.WriteFile(file.Name(), contents, 0o600)
+			So(err, ShouldBeNil)
+			err = cli.LoadConfiguration(config, file.Name())
+			So(err, ShouldBeNil)
+		})
+
 		Convey("Negative GC delay", func() {
 			config := config.New()
 			err = json.Unmarshal(contents, config)
 			config.Storage.GCDelay = -1 * time.Second
+
+			file, err := ioutil.TempFile("", "gc-config-*.json")
+			So(err, ShouldBeNil)
+			defer os.Remove(file.Name())
+
+			contents, err = json.MarshalIndent(config, "", " ")
+			So(err, ShouldBeNil)
+
+			err = ioutil.WriteFile(file.Name(), contents, 0o600)
+			So(err, ShouldBeNil)
+			err = cli.LoadConfiguration(config, file.Name())
+			So(err, ShouldNotBeNil)
+		})
+
+		Convey("GC delay when GC = false", func() {
+			config := config.New()
+
+			file, err := ioutil.TempFile("", "gc-false-config-*.json")
+			So(err, ShouldBeNil)
+			defer os.Remove(file.Name())
+
+			content := []byte(`{"distSpecVersion": "1.0.0", "storage": {"rootDirectory": "/tmp/zot",
+			"gc": false}, "http": {"address": "127.0.0.1", "port": "8080", "ReadOnly": false},
+			"log": {"level": "debug"}}`)
+
+			err = ioutil.WriteFile(file.Name(), content, 0o600)
+			So(err, ShouldBeNil)
+			err = cli.LoadConfiguration(config, file.Name())
+			So(err, ShouldBeNil)
+			So(config.Storage.GCDelay, ShouldEqual, 0)
+		})
+
+		Convey("Negative GC interval", func() {
+			config := config.New()
+			err = json.Unmarshal(contents, config)
+			config.Storage.GCInterval = -1 * time.Second
 
 			file, err := ioutil.TempFile("", "gc-config-*.json")
 			So(err, ShouldBeNil)
@@ -530,56 +706,6 @@ func TestScrub(t *testing.T) {
 
 			os.Args = []string{"cli_test", "scrub", tmpfile.Name()}
 			So(func() { _ = cli.NewServerRootCmd().Execute() }, ShouldPanic)
-		})
-	})
-}
-
-func TestApplyDefaultValues(t *testing.T) {
-	Convey("Test rewriting of config file if version is wrong", t, func() {
-		configContent := []byte(`{"distSpecVersion": "1.0.0555", "storage": {"rootDirectory": "/tmp/zot"},
-		"http": {"address": "127.0.0.1", "port": "8080", "ReadOnly": false},
-		"log": {"level": "debug"}}
-		`)
-		oldConfig := config.New()
-
-		file, err := ioutil.TempFile("", "default-val-test-config*.json")
-		So(err, ShouldBeNil)
-
-		defer os.Remove(file.Name())
-		_, err = file.Write(configContent)
-		So(err, ShouldBeNil)
-		Convey("The file can be rewritten", func() {
-			err = os.Chmod(file.Name(), 0o777)
-			So(err, ShouldBeNil)
-
-			err = cli.LoadConfiguration(oldConfig, file.Name())
-			So(err, ShouldBeNil)
-
-			configContent, err = ioutil.ReadFile(file.Name())
-			So(err, ShouldBeNil)
-
-			newConfig := config.New()
-			err = json.Unmarshal(configContent, newConfig)
-			So(err, ShouldBeNil)
-			So(newConfig.DistSpecVersion, ShouldEqual, distspec.Version)
-			So(newConfig.DistSpecVersion, ShouldEqual, distspec.Version)
-		})
-
-		Convey("The file can't be rewritten", func() {
-			err = os.Chmod(file.Name(), 0o444)
-			So(err, ShouldBeNil)
-
-			err = cli.LoadConfiguration(oldConfig, file.Name())
-			So(err, ShouldBeNil)
-
-			configContent, err = ioutil.ReadFile(file.Name())
-			So(err, ShouldBeNil)
-
-			newConfig := config.New()
-			err = json.Unmarshal(configContent, newConfig)
-			So(err, ShouldBeNil)
-			So(newConfig.DistSpecVersion, ShouldEqual, "1.0.0555")
-			So(oldConfig.DistSpecVersion, ShouldEqual, distspec.Version)
 		})
 	})
 }

@@ -13,12 +13,12 @@ import (
 func NewPerfRootCmd() *cobra.Command {
 	showVersion := false
 
-	var auth, workdir, repo, outFmt string
+	var auth, workdir, repo, outFmt, srcIPs, srcCIDR string
 
 	var concurrency, requests int
 
 	rootCmd := &cobra.Command{
-		Use:   "zb [options] <url>",
+		Use:   "zb <url>",
 		Short: "`zb`",
 		Long:  "`zb`",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -45,12 +45,16 @@ func NewPerfRootCmd() *cobra.Command {
 
 			requests = concurrency * (requests / concurrency)
 
-			Perf(workdir, url, auth, repo, concurrency, requests, outFmt)
+			Perf(workdir, url, auth, repo, concurrency, requests, outFmt, srcIPs, srcCIDR)
 		},
 	}
 
 	rootCmd.Flags().StringVarP(&auth, "auth-creds", "A", "",
 		"Use colon-separated BASIC auth creds")
+	rootCmd.Flags().StringVarP(&srcIPs, "src-ips", "i", "",
+		"Use colon-separated ips to make requests from, src-ips and src-cidr are mutually exclusive")
+	rootCmd.Flags().StringVarP(&srcCIDR, "src-cidr", "s", "",
+		"Use specified cidr to obtain ips to make requests from, src-ips and src-cidr are mutually exclusive")
 	rootCmd.Flags().StringVarP(&workdir, "working-dir", "d", "",
 		"Use specified directory to store test data")
 	rootCmd.Flags().StringVarP(&repo, "repo", "r", "",
@@ -63,7 +67,7 @@ func NewPerfRootCmd() *cobra.Command {
 		"Output format of test results: stdout (default), json, ci-cd")
 
 	// "version"
-	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "show the version and exit")
+	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Show the version and exit")
 
 	return rootCmd
 }

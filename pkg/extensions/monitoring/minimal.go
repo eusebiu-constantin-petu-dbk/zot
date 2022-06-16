@@ -116,7 +116,9 @@ func (ms *metricServer) ReceiveMetrics() interface{} {
 	return <-ms.cacheChan
 }
 
-func (ms *metricServer) IsEnabled() (b bool) {
+func (ms *metricServer) IsEnabled() bool {
+	b := false
+
 	// send a bool value on the request channel to avoid data race
 	ms.reqChan <- b
 
@@ -235,7 +237,7 @@ func GetHistograms() map[string][]string {
 
 // return true if a metric does not have any labels or if the label
 // values for searched metric corresponds to the one in the cached slice.
-func isMetricMatch(lValues []string, metricValues []string) bool {
+func isMetricMatch(lValues, metricValues []string) bool {
 	if len(lValues) == len(metricValues) {
 		for i, v := range metricValues {
 			if v != lValues[i] {
@@ -400,7 +402,7 @@ func (ms *metricServer) HistogramObserve(hv *HistogramValue) {
 }
 
 // nolint: goerr113
-func sanityChecks(name string, knownLabels []string, found bool, labelNames []string, labelValues []string) error {
+func sanityChecks(name string, knownLabels []string, found bool, labelNames, labelValues []string) error {
 	if !found {
 		return fmt.Errorf("metric %s: not found", name)
 	}
@@ -479,7 +481,7 @@ func IncUploadCounter(ms MetricServer, repo string) {
 	ms.SendMetric(uCounter)
 }
 
-func SetStorageUsage(ms MetricServer, rootDir string, repo string) {
+func SetStorageUsage(ms MetricServer, rootDir, repo string) {
 	dir := path.Join(rootDir, repo)
 
 	repoSize, err := getDirSize(dir)

@@ -299,7 +299,8 @@ func (search fixedTagsSearcher) search(config searchConfig) (bool, error) {
 }
 
 func collectResults(config searchConfig, wg *sync.WaitGroup, imageErr chan stringResult,
-	cancel context.CancelFunc, printHeader printHeader, errCh chan error) {
+	cancel context.CancelFunc, printHeader printHeader, errCh chan error,
+) {
 	var foundResult bool
 
 	defer wg.Done()
@@ -472,3 +473,29 @@ var (
 	errInvalidImageNameAndTag = errors.New("cli: Invalid input format. Expected IMAGENAME:TAG")
 	errInvalidImageName       = errors.New("cli: Invalid input format. Expected IMAGENAME without :TAG")
 )
+
+type repoSearcher struct{}
+
+func (search repoSearcher) searchRepos(config searchConfig) error {
+	username, password := getUsernameAndPassword(*config.user)
+	repoErr := make(chan stringResult)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
+	go config.searchService.getRepos(ctx, config, username, password, repoErr, &wg)
+	wg.Add(1)
+
+	errCh := make(chan error, 1)
+
+	go collectResults(config, &wg, repoErr, cancel, printImageTableHeader, errCh)
+	wg.Wait()
+	select {
+	case err := <-errCh:
+		return err
+	default:
+		return nil
+	}
+}

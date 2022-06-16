@@ -102,7 +102,7 @@ func TestServeExtensions(t *testing.T) {
 		WaitTillServerReady(baseURL)
 		data, err := os.ReadFile(logFile.Name())
 		So(err, ShouldBeNil)
-		So(string(data), ShouldContainSubstring, "\"Extensions\":{\"Search\":null,\"Sync\":null,\"Metrics\":null,\"Scrub\":null") // nolint:lll
+		So(string(data), ShouldContainSubstring, "\"Extensions\":{\"Search\":null,\"Sync\":null,\"Metrics\":null,\"Scrub\":null") //nolint:lll // gofumpt conflicts with lll
 	})
 }
 
@@ -143,7 +143,7 @@ func testWithMetricsEnabled(cfgContentFormat string) {
 	data, err := os.ReadFile(logFile.Name())
 	So(err, ShouldBeNil)
 	So(string(data), ShouldContainSubstring,
-		"\"Extensions\":{\"Search\":null,\"Sync\":null,\"Metrics\":{\"Enable\":true,\"Prometheus\":{\"Path\":\"/metrics\"}},\"Scrub\":null}") // nolint:lll
+		"\"Extensions\":{\"Search\":null,\"Sync\":null,\"Metrics\":{\"Enable\":true,\"Prometheus\":{\"Path\":\"/metrics\"}},\"Scrub\":null}") //nolint:lll // gofumpt conflicts with lll
 }
 
 func TestServeMetricsExtension(t *testing.T) {
@@ -267,7 +267,7 @@ func TestServeMetricsExtension(t *testing.T) {
 		data, err := os.ReadFile(logFile.Name())
 		So(err, ShouldBeNil)
 		So(string(data), ShouldContainSubstring,
-			"\"Extensions\":{\"Search\":null,\"Sync\":null,\"Metrics\":{\"Enable\":false,\"Prometheus\":{\"Path\":\"/metrics\"}},\"Scrub\":null}") // nolint:lll
+			"\"Extensions\":{\"Search\":null,\"Sync\":null,\"Metrics\":{\"Enable\":false,\"Prometheus\":{\"Path\":\"/metrics\"}},\"Scrub\":null}") //nolint:lll // gofumpt conflicts with lll
 	})
 }
 
@@ -508,10 +508,11 @@ func TestServeScrubExtension(t *testing.T) {
 		So(err, ShouldBeNil)
 		// Even if in config we specified scrub interval=1h, the minimum interval is 2h
 		So(string(data), ShouldContainSubstring,
-			"\"Extensions\":{\"Search\":null,\"Sync\":null,\"Metrics\":null,\"Scrub\":{\"Interval\":3600000000000}") // nolint:lll
-		So(string(data), ShouldContainSubstring, "executing scrub to check manifest/blob integrity")
+			"\"Extensions\":{\"Search\":null,\"Sync\":null,\"Metrics\":null,\"Scrub\":{\"Interval\":3600000000000}") //nolint:lll // gofumpt conflicts with lll
 		So(string(data), ShouldContainSubstring,
 			"Scrub interval set to too-short interval < 2h, changing scrub duration to 2 hours and continuing.")
+		So(string(data), ShouldContainSubstring, "Starting periodic background tasks for")
+		So(string(data), ShouldContainSubstring, "Finishing periodic background tasks for")
 	})
 
 	Convey("scrub not enabled - scrub interval param not set", t, func(c C) {
@@ -578,7 +579,7 @@ func TestServeSearchExtension(t *testing.T) {
 
 		content := fmt.Sprintf(`{
 					"storage": {
-						"rootDirectory": "/tmp/zot"
+						"rootDirectory": "%s"
 					},
 					"http": {
 						"address": "127.0.0.1",
@@ -592,7 +593,7 @@ func TestServeSearchExtension(t *testing.T) {
 						"search": {
 						}
 					}
-				}`, port, logFile.Name())
+				}`, t.TempDir(), port, logFile.Name())
 
 		cfgfile, err := ioutil.TempFile("", "zot-test*.json")
 		So(err, ShouldBeNil)
@@ -612,7 +613,7 @@ func TestServeSearchExtension(t *testing.T) {
 		data, err := os.ReadFile(logFile.Name())
 		So(err, ShouldBeNil)
 		So(string(data), ShouldContainSubstring,
-			"\"Extensions\":{\"Search\":{\"CVE\":{\"UpdateInterval\":86400000000000},\"Enable\":true},\"Sync\":null,\"Metrics\":null,\"Scrub\":null}") // nolint:lll
+			"\"Extensions\":{\"Search\":{\"CVE\":{\"UpdateInterval\":86400000000000},\"Enable\":true},\"Sync\":null,\"Metrics\":null,\"Scrub\":null}") //nolint:lll // gofumpt conflicts with lll
 		So(string(data), ShouldContainSubstring, "updating the CVE database")
 	})
 
@@ -625,7 +626,7 @@ func TestServeSearchExtension(t *testing.T) {
 
 		content := fmt.Sprintf(`{
 					"storage": {
-						"rootDirectory": "/tmp/zot"
+						"rootDirectory": "%s"
 					},
 					"http": {
 						"address": "127.0.0.1",
@@ -642,7 +643,7 @@ func TestServeSearchExtension(t *testing.T) {
 							}
 						}
 					}
-				}`, port, logFile.Name())
+				}`, t.TempDir(), port, logFile.Name())
 
 		cfgfile, err := ioutil.TempFile("", "zot-test*.json")
 		So(err, ShouldBeNil)
@@ -663,7 +664,7 @@ func TestServeSearchExtension(t *testing.T) {
 		So(err, ShouldBeNil)
 		// Even if in config we specified updateInterval=1h, the minimum interval is 2h
 		So(string(data), ShouldContainSubstring,
-			"\"Extensions\":{\"Search\":{\"CVE\":{\"UpdateInterval\":3600000000000},\"Enable\":true},\"Sync\":null,\"Metrics\":null,\"Scrub\":null}") // nolint:lll
+			"\"Extensions\":{\"Search\":{\"CVE\":{\"UpdateInterval\":3600000000000},\"Enable\":true},\"Sync\":null,\"Metrics\":null,\"Scrub\":null}") //nolint:lll // gofumpt conflicts with lll
 		So(string(data), ShouldContainSubstring, "updating the CVE database")
 		So(string(data), ShouldContainSubstring,
 			"CVE update interval set to too-short interval < 2h, changing update duration to 2 hours and continuing.")
@@ -678,7 +679,7 @@ func TestServeSearchExtension(t *testing.T) {
 
 		content := fmt.Sprintf(`{
 				"storage": {
-					"rootDirectory": "/tmp/zot"
+					"rootDirectory": "%s"
 				},
 				"http": {
 					"address": "127.0.0.1",
@@ -693,7 +694,7 @@ func TestServeSearchExtension(t *testing.T) {
 						"enable": true
 					}
 				}
-			}`, port, logFile.Name())
+			}`, t.TempDir(), port, logFile.Name())
 
 		cfgfile, err := ioutil.TempFile("", "zot-test*.json")
 		So(err, ShouldBeNil)
@@ -713,7 +714,7 @@ func TestServeSearchExtension(t *testing.T) {
 		data, err := os.ReadFile(logFile.Name())
 		So(err, ShouldBeNil)
 		So(string(data), ShouldContainSubstring,
-			"\"Extensions\":{\"Search\":{\"CVE\":{\"UpdateInterval\":86400000000000},\"Enable\":true},\"Sync\":null,\"Metrics\":null,\"Scrub\":null}") // nolint:lll
+			"\"Extensions\":{\"Search\":{\"CVE\":{\"UpdateInterval\":86400000000000},\"Enable\":true},\"Sync\":null,\"Metrics\":null,\"Scrub\":null}") //nolint:lll // gofumpt conflicts with lll
 		So(string(data), ShouldContainSubstring, "updating the CVE database")
 	})
 
@@ -726,7 +727,7 @@ func TestServeSearchExtension(t *testing.T) {
 
 		content := fmt.Sprintf(`{
 				"storage": {
-					"rootDirectory": "/tmp/zot"
+					"rootDirectory": "%s"
 				},
 				"http": {
 					"address": "127.0.0.1",
@@ -744,7 +745,7 @@ func TestServeSearchExtension(t *testing.T) {
 						}
 					}
 				}
-			}`, port, logFile.Name())
+			}`, t.TempDir(), port, logFile.Name())
 
 		cfgfile, err := ioutil.TempFile("", "zot-test*.json")
 		So(err, ShouldBeNil)
@@ -764,7 +765,7 @@ func TestServeSearchExtension(t *testing.T) {
 		data, err := os.ReadFile(logFile.Name())
 		So(err, ShouldBeNil)
 		So(string(data), ShouldContainSubstring,
-			"\"Extensions\":{\"Search\":{\"CVE\":{\"UpdateInterval\":10800000000000},\"Enable\":false},\"Sync\":null,\"Metrics\":null,\"Scrub\":null}") // nolint:lll
+			"\"Extensions\":{\"Search\":{\"CVE\":{\"UpdateInterval\":10800000000000},\"Enable\":false},\"Sync\":null,\"Metrics\":null,\"Scrub\":null}") //nolint:lll // gofumpt conflicts with lll
 		So(string(data), ShouldContainSubstring, "CVE config not provided, skipping CVE update")
 		So(string(data), ShouldNotContainSubstring,
 			"CVE update interval set to too-short interval < 2h, changing update duration to 2 hours and continuing.")

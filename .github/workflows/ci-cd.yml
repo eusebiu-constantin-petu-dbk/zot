@@ -37,14 +37,26 @@ jobs:
       - name: Install go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.17.x
+          go-version: 1.18.x
       - name: Check out source code
         uses: actions/checkout@v1
-      - name: Install dependencies
+      - name: Cache go dependencies
+        id: cache-go-dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Install go dependencies
+        if: steps.cache-go-dependencies.outputs.cache-hit != 'true'
+        run: go mod download
+      - name: Install other dependencies
         run: |
           cd $GITHUB_WORKSPACE
-          go install github.com/swaggo/swag/cmd/swag@latest
-          go mod download
+          go install github.com/swaggo/swag/cmd/swag@v1.6.3
           sudo apt-get update
           sudo apt-get install rpm
           sudo apt-get install snapd
@@ -86,7 +98,7 @@ jobs:
 
   push-image:
     if: github.event_name == 'release' && github.event.action== 'published'
-    name: Push Docker image to GitHub Packages
+    name: Push OCI images to GitHub Packages
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -101,67 +113,190 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build zot container image
-        uses: docker/build-push-action@v2
+      - name: Build and push zot container image
+        uses: project-stacker/stacker-build-push-action@main
         with:
+          file: 'stacker.yaml'
           build-args: |
             COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }}
             OS=${{ matrix.os }}
             ARCH=${{ matrix.arch }}
-          push: true
-          file: Dockerfile
-          tags: |
-            ghcr.io/${{ github.repository }}-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            ghcr.io/${{ github.repository }}-${{ matrix.os }}-${{ matrix.arch }}:latest
-      - name: Build zot-minimal container image
-        uses: docker/build-push-action@v2
+            REPO_NAME=zot-${{ matrix.os }}-${{ matrix.arch }}
+          url: docker://ghcr.io/${{ github.repository_owner }}
+          tags: ${{ github.event.release.tag_name }} latest
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run zot container image with docker
+        run: |
+          if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
+            docker run -d -p 5000:5000 ghcr.io/${{ github.repository_owner }}/zot-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            sleep 2
+            curl --connect-timeout 5 \
+              --max-time 10 \
+              --retry 12 \
+              --retry-max-time 360 \
+              --retry-connrefused \
+              'http://localhost:5000/v2/'
+            docker kill $(docker ps -q)
+          fi
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+      - name: Run zot container image with podman
+        run: |
+          if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
+            podman run -d -p 5000:5000 ghcr.io/${{ github.repository_owner }}/zot-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            sleep 2
+            curl --connect-timeout 5 \
+              --max-time 10 \
+              --retry 12 \
+              --retry-max-time 360 \
+              --retry-connrefused \
+              'http://localhost:5000/v2/'
+            podman kill --all
+          fi
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+      - name: Build and push zot-minimal container image
+        uses: project-stacker/stacker-build-push-action@main
         with:
+          file: 'stacker.yaml'
           build-args: |
             COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }}
             OS=${{ matrix.os }}
             ARCH=${{ matrix.arch }}
-          push: true
-          file: Dockerfile-minimal
-          tags: |
-            ghcr.io/${{ github.repository }}-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            ghcr.io/${{ github.repository }}-minimal-${{ matrix.os }}-${{ matrix.arch }}:latest
-      - name: Build zot-exporter container image
-        uses: docker/build-push-action@v2
+            EXT=-minimal
+            REPO_NAME=zot-minimal-${{ matrix.os }}-${{ matrix.arch }}
+          url: docker://ghcr.io/${{ github.repository_owner }}
+          tags: ${{ github.event.release.tag_name }} latest
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run zot-minimal container image with docker
+        run: |
+          if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
+            docker run -d -p 5000:5000 ghcr.io/${{ github.repository_owner }}/zot-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            sleep 2
+            curl --connect-timeout 5 \
+              --max-time 10 \
+              --retry 12 \
+              --retry-max-time 360 \
+              --retry-connrefused \
+              'http://localhost:5000/v2/'
+            docker kill $(docker ps -q)
+          fi
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+      - name: Run zot-minimal container image with podman
+        run: |
+          if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
+            podman run -d -p 5000:5000 ghcr.io/${{ github.repository_owner }}/zot-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            sleep 2
+            curl --connect-timeout 5 \
+              --max-time 10 \
+              --retry 12 \
+              --retry-max-time 360 \
+              --retry-connrefused \
+              'http://localhost:5000/v2/'
+            podman kill --all
+          fi
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+      - name: Build and push zot-exporter container image
+        uses: project-stacker/stacker-build-push-action@main
         with:
+          file: 'stacker-zxp.yaml'
           build-args: |
             COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }}
             OS=${{ matrix.os }}
             ARCH=${{ matrix.arch }}
-          push: true
-          file: Dockerfile-zxp
-          tags: |
-            ghcr.io/${{ github.repository }}-zxp-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            ghcr.io/${{ github.repository }}-zxp-${{ matrix.os }}-${{ matrix.arch }}:latest
-      - name: Build zb container image
-        uses: docker/build-push-action@v2
+            REPO_NAME=zxp-${{ matrix.os }}-${{ matrix.arch }}
+          url: docker://ghcr.io/${{ github.repository_owner }}
+          tags: ${{ github.event.release.tag_name }} latest
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run zot-exporter container image with docker
+        run: |
+          if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
+            docker run -d -p 5001:5001 ghcr.io/${{ github.repository_owner }}/zxp-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            sleep 2
+            curl --connect-timeout 5 \
+              --max-time 10 \
+              --retry 12 \
+              --retry-max-time 360 \
+              --retry-connrefused \
+              'http://localhost:5001/metrics'
+            docker kill $(docker ps -q)
+          fi
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+      - name: Run zot-exporter container image with podman
+        run: |
+          if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
+            podman run -d -p 5001:5001 ghcr.io/${{ github.repository_owner }}/zxp-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
+            sleep 2
+            curl --connect-timeout 5 \
+              --max-time 10 \
+              --retry 12 \
+              --retry-max-time 360 \
+              --retry-connrefused \
+              'http://localhost:5001/metrics'
+            podman kill --all
+          fi
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+      - name: Build and push zb container image
+        uses: project-stacker/stacker-build-push-action@main
         with:
+          file: 'stacker-zb.yaml'
           build-args: |
             COMMIT=${{ github.event.release.tag_name }}-${{ github.sha }}
             OS=${{ matrix.os }}
             ARCH=${{ matrix.arch }}
-          push: true
-          file: Dockerfile-zb
-          tags: |
-            ghcr.io/${{ github.repository }}-zb-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}
-            ghcr.io/${{ github.repository }}-zb-${{ matrix.os }}-${{ matrix.arch }}:latest
+            REPO_NAME=zb-${{ matrix.os }}-${{ matrix.arch }}
+          url: docker://ghcr.io/${{ github.repository_owner }}
+          tags: ${{ github.event.release.tag_name }} latest
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run zb container image with docker
+        run: |
+          if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
+            docker run ghcr.io/${{ github.repository_owner }}/zb-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }} --help
+          fi
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+      - name: Run zb container image with podman
+        run: |
+          if [[ $OS == "linux" && $ARCH == "amd64" ]]; then
+            podman run ghcr.io/${{ github.repository_owner }}/zb-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }} --help
+          fi
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'ghcr.io/${{ github.repository }}-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}'
           format: 'sarif'
           output: 'trivy-results.sarif'
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
       - name: Run Trivy vulnerability scanner (minimal)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'ghcr.io/${{ github.repository }}-minimal-${{ matrix.os }}-${{ matrix.arch }}:${{ github.event.release.tag_name }}'
           format: 'sarif'
           output: 'trivy-results.sarif'
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v1
+        uses: github/codeql-action/upload-sarif@v2
         with:
           sarif_file: 'trivy-results.sarif'

@@ -5,13 +5,16 @@ package extensions
 
 import (
 	"context"
+	"fmt"
 	goSync "sync"
 	"time"
 
 	gqlHandler "github.com/99designs/gqlgen/graphql/handler"
 	"github.com/gorilla/mux"
+	distext "github.com/opencontainers/distribution-spec/specs-go/v1/extensions"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"zotregistry.io/zot/pkg/api/config"
+	"zotregistry.io/zot/pkg/api/constants"
 	"zotregistry.io/zot/pkg/extensions/scrub"
 	"zotregistry.io/zot/pkg/extensions/search"
 	cveinfo "zotregistry.io/zot/pkg/extensions/search/cve"
@@ -43,7 +46,7 @@ func EnableExtensions(config *config.Config, log log.Logger, rootDir string) {
 		if config.Extensions.Search.CVE.UpdateInterval < defaultUpdateInterval {
 			config.Extensions.Search.CVE.UpdateInterval = defaultUpdateInterval
 
-			log.Warn().Msg("CVE update interval set to too-short interval < 2h, changing update duration to 2 hours and continuing.") // nolint: lll
+			log.Warn().Msg("CVE update interval set to too-short interval < 2h, changing update duration to 2 hours and continuing.") //nolint:lll // gofumpt conflicts with lll
 		}
 
 		go func() {
@@ -61,9 +64,10 @@ func EnableExtensions(config *config.Config, log log.Logger, rootDir string) {
 		*config.Extensions.Metrics.Enable &&
 		config.Extensions.Metrics.Prometheus != nil {
 		if config.Extensions.Metrics.Prometheus.Path == "" {
-			config.Extensions.Metrics.Prometheus.Path = "/metrics"
+			config.Extensions.Metrics.Prometheus.Path = constants.DefaultMetricsExtensionRoute
 
-			log.Warn().Msg("Prometheus instrumentation Path not set, changing to '/metrics'.")
+			log.Warn().Msg(fmt.Sprintf("Prometheus instrumentation Path not set, changing to %s.",
+				constants.DefaultMetricsExtensionRoute))
 		}
 	} else {
 		log.Info().Msg("Metrics config not provided, skipping Metrics config update")
@@ -72,7 +76,8 @@ func EnableExtensions(config *config.Config, log log.Logger, rootDir string) {
 
 // EnableSyncExtension enables sync extension.
 func EnableSyncExtension(ctx context.Context, config *config.Config, wg *goSync.WaitGroup,
-	storeController storage.StoreController, log log.Logger) {
+	storeController storage.StoreController, log log.Logger,
+) {
 	if config.Extensions.Sync != nil && *config.Extensions.Sync.Enable {
 		if err := sync.Run(ctx, *config.Extensions.Sync, storeController, wg, log); err != nil {
 			log.Error().Err(err).Msg("Error encountered while setting up syncing")
@@ -83,32 +88,57 @@ func EnableSyncExtension(ctx context.Context, config *config.Config, wg *goSync.
 }
 
 // EnableScrubExtension enables scrub extension.
-func EnableScrubExtension(config *config.Config, storeController storage.StoreController,
-	log log.Logger) {
-	if config.Extensions.Scrub != nil &&
-		config.Extensions.Scrub.Interval != 0 {
-		minScrubInterval, _ := time.ParseDuration("2h")
+func EnableScrubExtension(config *config.Config, log log.Logger, run bool, imgStore storage.ImageStore, repo string) {
+	if !run {
+		if config.Extensions.Scrub != nil &&
+			config.Extensions.Scrub.Interval != 0 {
+			minScrubInterval, _ := time.ParseDuration("2h")
 
-		if config.Extensions.Scrub.Interval < minScrubInterval {
-			config.Extensions.Scrub.Interval = minScrubInterval
+			if config.Extensions.Scrub.Interval < minScrubInterval {
+				config.Extensions.Scrub.Interval = minScrubInterval
 
-			log.Warn().Msg("Scrub interval set to too-short interval < 2h, changing scrub duration to 2 hours and continuing.") // nolint: lll
-		}
-
-		go func() {
-			err := scrub.Run(log, config.Extensions.Scrub.Interval, storeController)
-			if err != nil {
-				log.Error().Err(err).Msg("error while trying to scrub")
+				log.Warn().Msg("Scrub interval set to too-short interval < 2h, changing scrub duration to 2 hours and continuing.") //nolint:lll // gofumpt conflicts with lll
 			}
-		}()
+		} else {
+			log.Info().Msg("Scrub config not provided, skipping scrub")
+		}
 	} else {
-		log.Info().Msg("Scrub config not provided, skipping scrub")
+		scrub.RunScrubRepo(imgStore, repo, log)
 	}
 }
 
+func getExtension(name, url, description string, endpoints []string) distext.Extension {
+	return distext.Extension{
+		Name:        name,
+		URL:         url,
+		Description: description,
+		Endpoints:   endpoints,
+	}
+}
+
+func GetExtensions(config *config.Config) distext.ExtensionList {
+	extensionList := distext.ExtensionList{}
+
+	extensions := make([]distext.Extension, 0)
+
+	if config.Extensions != nil && config.Extensions.Search != nil {
+		endpoints := []string{constants.ExtSearchPrefix}
+		searchExt := getExtension("_zot",
+			"https://github.com/project-zot/zot/tree/main/pkg/extensions/_zot.md",
+			"zot registry extension",
+			endpoints)
+
+		extensions = append(extensions, searchExt)
+	}
+
+	extensionList.Extensions = extensions
+
+	return extensionList
+}
+
 // SetupRoutes ...
-func SetupRoutes(config *config.Config, router *mux.Router, storeController storage.StoreController,
-	l log.Logger) {
+func SetupRoutes(config *config.Config, router *mux.Router, storeController storage.StoreController, l log.Logger,
+) {
 	// fork a new zerolog child to avoid data race
 	log := log.Logger{Logger: l.With().Caller().Timestamp().Logger()}
 	log.Info().Msg("setting up extensions routes")
@@ -122,7 +152,7 @@ func SetupRoutes(config *config.Config, router *mux.Router, storeController stor
 			resConfig = search.GetResolverConfig(log, storeController, false)
 		}
 
-		router.PathPrefix("/query").Methods("GET", "POST", "OPTIONS").
+		router.PathPrefix(constants.ExtSearchPrefix).Methods("OPTIONS", "GET", "POST").
 			Handler(gqlHandler.NewDefaultServer(search.NewExecutableSchema(resConfig)))
 	}
 
@@ -134,7 +164,8 @@ func SetupRoutes(config *config.Config, router *mux.Router, storeController stor
 
 // SyncOneImage syncs one image.
 func SyncOneImage(config *config.Config, storeController storage.StoreController,
-	repoName, reference string, isArtifact bool, log log.Logger) error {
+	repoName, reference string, isArtifact bool, log log.Logger,
+) error {
 	log.Info().Msgf("syncing image %s:%s", repoName, reference)
 
 	err := sync.OneImage(*config.Extensions.Sync, storeController, repoName, reference, isArtifact, log)

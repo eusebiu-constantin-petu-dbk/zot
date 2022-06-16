@@ -61,11 +61,10 @@ func TestInjectSyncUtils(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-
 		imageStore := storage.NewImageStore(t.TempDir(), false, storage.DefaultGCDelay, false, false, log, metrics)
-
 		injected = test.InjectFailure(0)
-		_, _, err = getLocalImageRef(imageStore, testImage, testImageTag)
+
+		_, err = getLocalCachePath(imageStore, testImage)
 		if injected {
 			So(err, ShouldNotBeNil)
 		} else {
@@ -154,7 +153,7 @@ func TestSyncInternal(t *testing.T) {
 		So(err, ShouldNotBeNil)
 	})
 
-	Convey("Verify getLocalImageRef()", t, func() {
+	Convey("Verify getLocalImageRef() and getLocalCachePath()", t, func() {
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
 
@@ -163,13 +162,36 @@ func TestSyncInternal(t *testing.T) {
 		err := os.Chmod(imageStore.RootDir(), 0o000)
 		So(err, ShouldBeNil)
 
-		_, _, err = getLocalImageRef(imageStore, testImage, testImageTag)
+		localCachePath, err := getLocalCachePath(imageStore, testImage)
+		So(err, ShouldNotBeNil)
+
+		_, err = getLocalImageRef(localCachePath, testImage, testImageTag)
+		So(err, ShouldNotBeNil)
+
+		err = os.Chmod(imageStore.RootDir(), 0o544)
+		So(err, ShouldBeNil)
+
+		_, err = getLocalCachePath(imageStore, testImage)
 		So(err, ShouldNotBeNil)
 
 		err = os.Chmod(imageStore.RootDir(), 0o755)
 		So(err, ShouldBeNil)
 
-		_, _, err = getLocalImageRef(imageStore, "zot][]321", "tag_tag][]")
+		localCachePath, err = getLocalCachePath(imageStore, testImage)
+		So(err, ShouldBeNil)
+
+		testPath, _ := path.Split(localCachePath)
+
+		err = os.Chmod(testPath, 0o544)
+		So(err, ShouldBeNil)
+
+		_, err = getLocalCachePath(imageStore, testImage)
+		So(err, ShouldNotBeNil)
+
+		err = os.Chmod(testPath, 0o755)
+		So(err, ShouldBeNil)
+
+		_, err = getLocalImageRef(localCachePath, "zot][]321", "tag_tag][]")
 		So(err, ShouldNotBeNil)
 	})
 
@@ -471,15 +493,41 @@ func TestSyncInternal(t *testing.T) {
 			panic(err)
 		}
 
-		manifestConfigPath := path.Join(imageStore.RootDir(), testImage, "blobs", "sha256", manifest.Config.Digest.Hex())
-		if err := os.MkdirAll(manifestConfigPath, 0o000); err != nil {
+		cachedManifestBackup, err := os.ReadFile(cachedManifestConfigPath)
+		if err != nil {
+			panic(err)
+		}
+
+		configDigestBackup := manifest.Config.Digest
+		manifest.Config.Digest = "not what it needs to be"
+		manifestBuf, err := json.Marshal(manifest)
+		if err != nil {
+			panic(err)
+		}
+
+		if err = os.WriteFile(cachedManifestConfigPath, manifestBuf, 0o600); err != nil {
+			panic(err)
+		}
+
+		if err = os.Chmod(cachedManifestConfigPath, 0o755); err != nil {
 			panic(err)
 		}
 
 		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
 		So(err, ShouldNotBeNil)
 
-		if err := os.Remove(manifestConfigPath); err != nil {
+		manifest.Config.Digest = configDigestBackup
+		manifestBuf = cachedManifestBackup
+
+		if err := os.Remove(cachedManifestConfigPath); err != nil {
+			panic(err)
+		}
+
+		if err = os.WriteFile(cachedManifestConfigPath, manifestBuf, 0o600); err != nil {
+			panic(err)
+		}
+
+		if err = os.Chmod(cachedManifestConfigPath, 0o755); err != nil {
 			panic(err)
 		}
 
@@ -646,6 +694,249 @@ func TestFindRepoMatchingContentID(t *testing.T) {
 			actualResult, err := findRepoMatchingContentID(test.repo, test.content)
 			So(actualResult, ShouldEqual, test.expected.contentID)
 			So(err, ShouldResemble, test.expected.err)
+		}
+	})
+}
+
+func TestCompareManifest(t *testing.T) {
+	testCases := []struct {
+		manifest1 ispec.Manifest
+		manifest2 ispec.Manifest
+		expected  bool
+	}{
+		{
+			manifest1: ispec.Manifest{
+				Config: ispec.Descriptor{
+					Digest: "digest1",
+				},
+			},
+			manifest2: ispec.Manifest{
+				Config: ispec.Descriptor{
+					Digest: "digest2",
+				},
+			},
+			expected: false,
+		},
+		{
+			manifest1: ispec.Manifest{
+				Config: ispec.Descriptor{
+					Digest: "digest",
+				},
+			},
+			manifest2: ispec.Manifest{
+				Config: ispec.Descriptor{
+					Digest: "digest",
+				},
+			},
+			expected: true,
+		},
+		{
+			manifest1: ispec.Manifest{
+				Layers: []ispec.Descriptor{{
+					Digest: "digest",
+					Size:   1,
+				}},
+			},
+			manifest2: ispec.Manifest{
+				Layers: []ispec.Descriptor{{
+					Digest: "digest",
+					Size:   1,
+				}},
+			},
+			expected: true,
+		},
+		{
+			manifest1: ispec.Manifest{
+				Layers: []ispec.Descriptor{{
+					Digest: "digest1",
+					Size:   1,
+				}},
+			},
+			manifest2: ispec.Manifest{
+				Layers: []ispec.Descriptor{{
+					Digest: "digest2",
+					Size:   2,
+				}},
+			},
+			expected: false,
+		},
+		{
+			manifest1: ispec.Manifest{
+				Layers: []ispec.Descriptor{
+					{
+						Digest: "digest",
+						Size:   1,
+					},
+					{
+						Digest: "digest1",
+						Size:   1,
+					},
+				},
+			},
+			manifest2: ispec.Manifest{
+				Layers: []ispec.Descriptor{{
+					Digest: "digest",
+					Size:   1,
+				}},
+			},
+			expected: false,
+		},
+		{
+			manifest1: ispec.Manifest{
+				Layers: []ispec.Descriptor{
+					{
+						Digest: "digest1",
+						Size:   1,
+					},
+					{
+						Digest: "digest2",
+						Size:   2,
+					},
+				},
+			},
+			manifest2: ispec.Manifest{
+				Layers: []ispec.Descriptor{
+					{
+						Digest: "digest1",
+						Size:   1,
+					},
+					{
+						Digest: "digest2",
+						Size:   2,
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			manifest1: ispec.Manifest{
+				Layers: []ispec.Descriptor{
+					{
+						Digest: "digest",
+						Size:   1,
+					},
+					{
+						Digest: "digest1",
+						Size:   1,
+					},
+				},
+			},
+			manifest2: ispec.Manifest{
+				Layers: []ispec.Descriptor{
+					{
+						Digest: "digest",
+						Size:   1,
+					},
+					{
+						Digest: "digest2",
+						Size:   2,
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	Convey("Test manifestsEqual()", t, func() {
+		for _, test := range testCases {
+			actualResult := manifestsEqual(test.manifest1, test.manifest2)
+			So(actualResult, ShouldEqual, test.expected)
+		}
+	})
+}
+
+func TestCompareArtifactRefs(t *testing.T) {
+	testCases := []struct {
+		refs1    []artifactspec.Descriptor
+		refs2    []artifactspec.Descriptor
+		expected bool
+	}{
+		{
+			refs1: []artifactspec.Descriptor{
+				{
+					Digest: "digest1",
+				},
+			},
+			refs2: []artifactspec.Descriptor{
+				{
+					Digest: "digest2",
+				},
+			},
+			expected: false,
+		},
+		{
+			refs1: []artifactspec.Descriptor{
+				{
+					Digest: "digest",
+				},
+			},
+			refs2: []artifactspec.Descriptor{
+				{
+					Digest: "digest",
+				},
+			},
+			expected: true,
+		},
+		{
+			refs1: []artifactspec.Descriptor{
+				{
+					Digest: "digest",
+				},
+				{
+					Digest: "digest2",
+				},
+			},
+			refs2: []artifactspec.Descriptor{
+				{
+					Digest: "digest",
+				},
+			},
+			expected: false,
+		},
+		{
+			refs1: []artifactspec.Descriptor{
+				{
+					Digest: "digest1",
+				},
+				{
+					Digest: "digest2",
+				},
+			},
+			refs2: []artifactspec.Descriptor{
+				{
+					Digest: "digest1",
+				},
+				{
+					Digest: "digest2",
+				},
+			},
+			expected: true,
+		},
+		{
+			refs1: []artifactspec.Descriptor{
+				{
+					Digest: "digest",
+				},
+				{
+					Digest: "digest1",
+				},
+			},
+			refs2: []artifactspec.Descriptor{
+				{
+					Digest: "digest1",
+				},
+				{
+					Digest: "digest2",
+				},
+			},
+			expected: false,
+		},
+	}
+
+	Convey("Test manifestsEqual()", t, func() {
+		for _, test := range testCases {
+			actualResult := artifactDescriptorsEqual(test.refs1, test.refs2)
+			So(actualResult, ShouldEqual, test.expected)
 		}
 	})
 }

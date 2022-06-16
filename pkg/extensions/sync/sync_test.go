@@ -32,11 +32,12 @@ import (
 	"github.com/sigstore/cosign/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/cmd/cosign/cli/sign"
 	"github.com/sigstore/cosign/cmd/cosign/cli/verify"
-	"github.com/sigstore/cosign/pkg/cosign"
+	"github.com/sigstore/cosign/pkg/oci/remote"
 	. "github.com/smartystreets/goconvey/convey"
 	"gopkg.in/resty.v1"
 	"zotregistry.io/zot/pkg/api"
 	"zotregistry.io/zot/pkg/api/config"
+	"zotregistry.io/zot/pkg/api/constants"
 	"zotregistry.io/zot/pkg/cli"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
 	"zotregistry.io/zot/pkg/extensions/sync"
@@ -249,6 +250,109 @@ func startDownstreamServer(
 	}
 
 	return dctlr, destBaseURL, destDir, client
+}
+
+func TestORAS(t *testing.T) {
+	Convey("Verify sync on demand for oras objects", t, func() {
+		sctlr, srcBaseURL, _, _, srcClient := startUpstreamServer(t, false, false)
+
+		test.WaitTillServerReady(srcBaseURL)
+
+		defer func() {
+			sctlr.Shutdown()
+		}()
+
+		content := []byte("{\"name\":\"foo\",\"value\":\"bar\"}")
+
+		fileDir := t.TempDir()
+
+		err := os.WriteFile(path.Join(fileDir, "config.json"), content, 0o600)
+		if err != nil {
+			panic(err)
+		}
+
+		content = []byte("helloworld")
+
+		err = os.WriteFile(path.Join(fileDir, "artifact.txt"), content, 0o600)
+		if err != nil {
+			panic(err)
+		}
+
+		cmd := exec.Command("oras", "version")
+
+		err = cmd.Run()
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Println(fileDir)
+
+		srcURL := strings.Join([]string{sctlr.Server.Addr, "/oras-artifact:v2"}, "")
+
+		cmd = exec.Command("oras", "push", srcURL, "--manifest-config",
+			"config.json:application/vnd.acme.rocket.config.v1+json", "artifact.txt:text/plain", "-d", "-v")
+		cmd.Dir = fileDir
+
+		// Pushing ORAS artifact to upstream
+		err = cmd.Run()
+		So(err, ShouldBeNil)
+
+		var tlsVerify bool
+
+		regex := ".*"
+
+		syncRegistryConfig := sync.RegistryConfig{
+			Content: []sync.Content{
+				{
+					Prefix: "oras-artifact",
+					Tags: &sync.Tags{
+						Regex: &regex,
+					},
+				},
+			},
+			URLs:      []string{srcBaseURL},
+			TLSVerify: &tlsVerify,
+			CertDir:   "",
+			OnDemand:  true,
+		}
+
+		defaultVal := true
+		syncConfig := &sync.Config{
+			Enable:     &defaultVal,
+			Registries: []sync.RegistryConfig{syncRegistryConfig},
+		}
+
+		dctlr, destBaseURL, _, destClient := startDownstreamServer(t, false, syncConfig)
+
+		test.WaitTillServerReady(destBaseURL)
+
+		defer func() {
+			dctlr.Shutdown()
+		}()
+
+		resp, _ := srcClient.R().Get(srcBaseURL + "/v2/" + "oras-artifact" + "/manifests/v2")
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, 200)
+
+		resp, err = destClient.R().Get(destBaseURL + "/v2/" + "oras-artifact" + "/manifests/v2")
+		So(err, ShouldBeNil)
+		So(resp.StatusCode(), ShouldEqual, 200)
+
+		destURL := strings.Join([]string{dctlr.Server.Addr, "/oras-artifact:v2"}, "")
+		cmd = exec.Command("oras", "pull", destURL, "-d", "-v", "-a")
+		destDir := t.TempDir()
+		cmd.Dir = destDir
+		// pulling oras artifact from dest server
+		err = cmd.Run()
+		So(err, ShouldBeNil)
+
+		cmd = exec.Command("grep", "helloworld", "artifact.txt")
+		cmd.Dir = destDir
+		output, err := cmd.CombinedOutput()
+
+		So(err, ShouldBeNil)
+		So(string(output), ShouldContainSubstring, "helloworld")
+	})
 }
 
 func TestOnDemand(t *testing.T) {
@@ -1315,22 +1419,22 @@ func TestNoImagesByRegex(t *testing.T) {
 			dctlr.Shutdown()
 		}()
 
-		resp, err := destClient.R().Get(destBaseURL + "/v2/" + testImage + "/manifests/" + testImageTag)
+		resp, err := destClient.R().Get(destBaseURL + constants.RoutePrefix + testImage + "/manifests/" + testImageTag)
 		So(err, ShouldBeNil)
 		So(resp.StatusCode(), ShouldEqual, 404)
 
-		resp, err = destClient.R().Get(destBaseURL + "/v2/_catalog")
+		resp, err = destClient.R().Get(destBaseURL + constants.RoutePrefix + constants.ExtCatalogPrefix)
 		So(err, ShouldBeNil)
 		So(resp, ShouldNotBeEmpty)
 		So(resp.StatusCode(), ShouldEqual, 200)
 
-		var c catalog
-		err = json.Unmarshal(resp.Body(), &c)
+		var catalog catalog
+		err = json.Unmarshal(resp.Body(), &catalog)
 		if err != nil {
 			panic(err)
 		}
 
-		So(c.Repositories, ShouldResemble, []string{})
+		So(catalog.Repositories, ShouldResemble, []string{})
 	})
 }
 
@@ -1743,7 +1847,7 @@ func TestSubPaths(t *testing.T) {
 		var destTagsList TagsList
 
 		for {
-			resp, err := resty.R().Get(destBaseURL + "/v2" + path.Join(subpath, testImage) + "/tags/list")
+			resp, err := resty.R().Get(destBaseURL + constants.RoutePrefix + path.Join(subpath, testImage) + "/tags/list")
 			if err != nil {
 				panic(err)
 			}
@@ -2166,9 +2270,10 @@ func TestPeriodicallySignaturesErr(t *testing.T) {
 
 		Convey("Trigger error on cosign signature", func() {
 			// trigger permission error on cosign signature on upstream
-			cosignTag := string(imageManifestDigest.Algorithm()) + "-" + imageManifestDigest.Hex() + cosign.SignatureTagSuffix
+			cosignTag := string(imageManifestDigest.Algorithm()) + "-" + imageManifestDigest.Hex() +
+				"." + remote.SignatureTagSuffix
 
-			getCosignManifestURL := srcBaseURL + path.Join("/v2", repoName, "manifests", cosignTag)
+			getCosignManifestURL := srcBaseURL + path.Join(constants.RoutePrefix, repoName, "manifests", cosignTag)
 			mResp, err := resty.R().Get(getCosignManifestURL)
 			So(err, ShouldBeNil)
 
@@ -2214,17 +2319,17 @@ func TestPeriodicallySignaturesErr(t *testing.T) {
 			So(err, ShouldBeNil)
 
 			// read manifest
-			var nm artifactspec.Manifest
+			var artifactManifest artifactspec.Manifest
 			for _, ref := range referrers.References {
 				refPath := path.Join(srcDir, repoName, "blobs", string(ref.Digest.Algorithm()), ref.Digest.Hex())
 				body, err := ioutil.ReadFile(refPath)
 				So(err, ShouldBeNil)
 
-				err = json.Unmarshal(body, &nm)
+				err = json.Unmarshal(body, &artifactManifest)
 				So(err, ShouldBeNil)
 
 				// triggers perm denied on sig blobs
-				for _, blob := range nm.Blobs {
+				for _, blob := range artifactManifest.Blobs {
 					blobPath := path.Join(srcDir, repoName, "blobs", string(blob.Digest.Algorithm()), blob.Digest.Hex())
 					err := os.Chmod(blobPath, 0o000)
 					So(err, ShouldBeNil)
@@ -2382,17 +2487,17 @@ func TestSignatures(t *testing.T) {
 		err = os.RemoveAll(path.Join(destDir, repoName))
 		So(err, ShouldBeNil)
 
-		var nm artifactspec.Manifest
+		var artifactManifest artifactspec.Manifest
 		for _, ref := range referrers.References {
 			refPath := path.Join(srcDir, repoName, "blobs", string(ref.Digest.Algorithm()), ref.Digest.Hex())
 			body, err := ioutil.ReadFile(refPath)
 			So(err, ShouldBeNil)
 
-			err = json.Unmarshal(body, &nm)
+			err = json.Unmarshal(body, &artifactManifest)
 			So(err, ShouldBeNil)
 
 			// triggers perm denied on notary sig blobs on downstream
-			for _, blob := range nm.Blobs {
+			for _, blob := range artifactManifest.Blobs {
 				blobPath := path.Join(destDir, repoName, "blobs", string(blob.Digest.Algorithm()), blob.Digest.Hex())
 				err := os.MkdirAll(blobPath, 0o755)
 				So(err, ShouldBeNil)
@@ -2425,7 +2530,7 @@ func TestSignatures(t *testing.T) {
 		So(resp.StatusCode(), ShouldEqual, 200)
 
 		// triggers perm denied on sig blobs
-		for _, blob := range nm.Blobs {
+		for _, blob := range artifactManifest.Blobs {
 			blobPath := path.Join(srcDir, repoName, "blobs", string(blob.Digest.Algorithm()), blob.Digest.Hex())
 			err := os.Chmod(blobPath, 0o000)
 			So(err, ShouldBeNil)
@@ -2443,34 +2548,34 @@ func TestSignatures(t *testing.T) {
 		// test cosign signatures errors
 		// based on manifest digest get cosign manifest
 		cosignEncodedDigest := strings.Replace(digest.String(), ":", "-", 1) + ".sig"
-		getCosignManifestURL := srcBaseURL + path.Join("/v2", repoName, "manifests", cosignEncodedDigest)
+		getCosignManifestURL := srcBaseURL + path.Join(constants.RoutePrefix, repoName, "manifests", cosignEncodedDigest)
 
 		mResp, err := resty.R().Get(getCosignManifestURL)
 		So(err, ShouldBeNil)
 
-		var cm ispec.Manifest
+		var imageManifest ispec.Manifest
 
-		err = json.Unmarshal(mResp.Body(), &cm)
+		err = json.Unmarshal(mResp.Body(), &imageManifest)
 		So(err, ShouldBeNil)
 
 		downstreaamCosignManifest := ispec.Manifest{
-			MediaType: cm.MediaType,
+			MediaType: imageManifest.MediaType,
 			Config: ispec.Descriptor{
-				MediaType:   cm.Config.MediaType,
-				Size:        cm.Config.Size,
-				Digest:      cm.Config.Digest,
-				Annotations: cm.Config.Annotations,
+				MediaType:   imageManifest.Config.MediaType,
+				Size:        imageManifest.Config.Size,
+				Digest:      imageManifest.Config.Digest,
+				Annotations: imageManifest.Config.Annotations,
 			},
-			Layers:      cm.Layers,
-			Versioned:   cm.Versioned,
-			Annotations: cm.Annotations,
+			Layers:      imageManifest.Layers,
+			Versioned:   imageManifest.Versioned,
+			Annotations: imageManifest.Annotations,
 		}
 
 		buf, err := json.Marshal(downstreaamCosignManifest)
 		So(err, ShouldBeNil)
 		cosignManifestDigest := godigest.FromBytes(buf)
 
-		for _, blob := range cm.Layers {
+		for _, blob := range imageManifest.Layers {
 			blobPath := path.Join(srcDir, repoName, "blobs", string(blob.Digest.Algorithm()), blob.Digest.Hex())
 			err := os.Chmod(blobPath, 0o000)
 			So(err, ShouldBeNil)
@@ -2489,7 +2594,7 @@ func TestSignatures(t *testing.T) {
 		err = os.RemoveAll(path.Join(destDir, repoName))
 		So(err, ShouldBeNil)
 
-		for _, blob := range cm.Layers {
+		for _, blob := range imageManifest.Layers {
 			srcBlobPath := path.Join(srcDir, repoName, "blobs", string(blob.Digest.Algorithm()), blob.Digest.Hex())
 			err := os.Chmod(srcBlobPath, 0o755)
 			So(err, ShouldBeNil)
@@ -2506,7 +2611,7 @@ func TestSignatures(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(resp.StatusCode(), ShouldEqual, 200)
 
-		for _, blob := range cm.Layers {
+		for _, blob := range imageManifest.Layers {
 			destBlobPath := path.Join(destDir, repoName, "blobs", string(blob.Digest.Algorithm()), blob.Digest.Hex())
 			err = os.Chmod(destBlobPath, 0o755)
 			So(err, ShouldBeNil)
@@ -2515,8 +2620,8 @@ func TestSignatures(t *testing.T) {
 		}
 
 		// trigger error on upstream config blob
-		srcConfigBlobPath := path.Join(srcDir, repoName, "blobs", string(cm.Config.Digest.Algorithm()),
-			cm.Config.Digest.Hex())
+		srcConfigBlobPath := path.Join(srcDir, repoName, "blobs", string(imageManifest.Config.Digest.Algorithm()),
+			imageManifest.Config.Digest.Hex())
 		err = os.Chmod(srcConfigBlobPath, 0o000)
 		So(err, ShouldBeNil)
 
@@ -2537,8 +2642,8 @@ func TestSignatures(t *testing.T) {
 		err = os.RemoveAll(path.Join(destDir, repoName))
 		So(err, ShouldBeNil)
 
-		destConfigBlobPath := path.Join(destDir, repoName, "blobs", string(cm.Config.Digest.Algorithm()),
-			cm.Config.Digest.Hex())
+		destConfigBlobPath := path.Join(destDir, repoName, "blobs", string(imageManifest.Config.Digest.Algorithm()),
+			imageManifest.Config.Digest.Hex())
 
 		err = os.MkdirAll(destConfigBlobPath, 0o755)
 		So(err, ShouldBeNil)
@@ -3056,20 +3161,20 @@ func TestSignaturesOnDemand(t *testing.T) {
 
 		// test negative case
 		cosignEncodedDigest := strings.Replace(digest.String(), ":", "-", 1) + ".sig"
-		getCosignManifestURL := srcBaseURL + path.Join("/v2", repoName, "manifests", cosignEncodedDigest)
+		getCosignManifestURL := srcBaseURL + path.Join(constants.RoutePrefix, repoName, "manifests", cosignEncodedDigest)
 
 		mResp, err := resty.R().Get(getCosignManifestURL)
 		So(err, ShouldBeNil)
 
-		var cm ispec.Manifest
+		var imageManifest ispec.Manifest
 
-		err = json.Unmarshal(mResp.Body(), &cm)
+		err = json.Unmarshal(mResp.Body(), &imageManifest)
 		So(err, ShouldBeNil)
 
 		// trigger errors on cosign blobs
 		// trigger error on cosign config blob
-		srcConfigBlobPath := path.Join(srcDir, repoName, "blobs", string(cm.Config.Digest.Algorithm()),
-			cm.Config.Digest.Hex())
+		srcConfigBlobPath := path.Join(srcDir, repoName, "blobs", string(imageManifest.Config.Digest.Algorithm()),
+			imageManifest.Config.Digest.Hex())
 		err = os.Chmod(srcConfigBlobPath, 0o000)
 		So(err, ShouldBeNil)
 
@@ -3083,8 +3188,8 @@ func TestSignaturesOnDemand(t *testing.T) {
 		So(resp.StatusCode(), ShouldEqual, 200)
 
 		// trigger error on cosign layer blob
-		srcSignatureBlobPath := path.Join(srcDir, repoName, "blobs", string(cm.Layers[0].Digest.Algorithm()),
-			cm.Layers[0].Digest.Hex())
+		srcSignatureBlobPath := path.Join(srcDir, repoName, "blobs", string(imageManifest.Layers[0].Digest.Algorithm()),
+			imageManifest.Layers[0].Digest.Hex())
 
 		err = os.Chmod(srcConfigBlobPath, 0o755)
 		So(err, ShouldBeNil)
@@ -3294,8 +3399,8 @@ func TestSyncOnlyDiff(t *testing.T) {
 				case <-done:
 					return
 				default:
-					_, err := os.ReadDir(path.Join(destDir, testImage, ".sync"))
-					if err == nil {
+					fileList, _ := os.ReadDir(path.Join(destDir, testImage, ".sync"))
+					if len(fileList) > 0 {
 						isPopulated = true
 					}
 					time.Sleep(200 * time.Millisecond)
@@ -3488,7 +3593,7 @@ func TestSyncSignaturesDiff(t *testing.T) {
 		defer func() { _ = os.Chdir(cwd) }()
 		tdir, err := ioutil.TempDir("", "sigs")
 		So(err, ShouldBeNil)
-		defer os.RemoveAll(tdir)
+
 		_ = os.Chdir(tdir)
 		generateKeyPairs(tdir)
 
@@ -3577,7 +3682,13 @@ func TestSyncSignaturesDiff(t *testing.T) {
 		err = vrfy.Exec(context.TODO(), []string{fmt.Sprintf("localhost:%s/%s:%s", destPort, repoName, "1.0")})
 		So(err, ShouldBeNil)
 
-		// now add signatures to upstream and let sync detect that upstream signatures changed and pull them
+		// now add new signatures to upstream and let sync detect that upstream signatures changed and pull them
+		So(os.RemoveAll(tdir), ShouldBeNil)
+		tdir, err = ioutil.TempDir("", "sigs")
+		So(err, ShouldBeNil)
+		defer os.RemoveAll(tdir)
+		_ = os.Chdir(tdir)
+		generateKeyPairs(tdir)
 		So(func() { signImage(tdir, srcPort, repoName, digest) }, ShouldNotPanic)
 
 		// wait for signatures
@@ -3785,11 +3896,11 @@ func signImage(tdir, port, repoName string, digest godigest.Digest) {
 	// push signatures to upstream server so that we can sync them later
 	// sign the image
 	err := sign.SignCmd(&options.RootOptions{Verbose: true, Timeout: 1 * time.Minute},
-		sign.KeyOpts{KeyRef: path.Join(tdir, "cosign.key"), PassFunc: generate.GetPass},
+		options.KeyOpts{KeyRef: path.Join(tdir, "cosign.key"), PassFunc: generate.GetPass},
 		options.RegistryOptions{AllowInsecure: true},
 		map[string]interface{}{"tag": "1.0"},
 		[]string{fmt.Sprintf("localhost:%s/%s@%s", port, repoName, digest.String())},
-		"", true, "", "", "", false, false, "")
+		"", "", true, "", "", "", false, false, "")
 	if err != nil {
 		panic(err)
 	}

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/api"
 	"zotregistry.io/zot/pkg/api/config"
+	"zotregistry.io/zot/pkg/api/constants"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/storage"
@@ -86,7 +88,7 @@ func newScrubCmd(conf *config.Config) *cobra.Command {
 			// checking if the server is  already running
 			req, err := http.NewRequestWithContext(context.Background(),
 				http.MethodGet,
-				fmt.Sprintf("http://%s:%s/v2", conf.HTTP.Address, conf.HTTP.Port),
+				fmt.Sprintf("http://%s/v2", net.JoinHostPort(conf.HTTP.Address, conf.HTTP.Port)),
 				nil)
 			if err != nil {
 				log.Error().Err(err).Msg("unable to create a new http request")
@@ -201,26 +203,23 @@ func NewCliRootCmd() *cobra.Command {
 }
 
 func validateConfiguration(config *config.Config) error {
-	// enforce GC params
-	if config.Storage.GCDelay < 0 {
-		log.Error().Err(errors.ErrBadConfig).
-			Msgf("invalid garbage-collect delay %v specified", config.Storage.GCDelay)
-
-		return errors.ErrBadConfig
+	if err := validateGC(config); err != nil {
+		return err
 	}
 
-	if !config.Storage.GC && config.Storage.GCDelay != 0 {
-		log.Warn().Err(errors.ErrBadConfig).
-			Msg("garbage-collect delay specified without enabling garbage-collect, will be ignored")
+	if err := validateLDAP(config); err != nil {
+		return err
+	}
+
+	if err := validateSync(config); err != nil {
+		return err
 	}
 
 	// check authorization config, it should have basic auth enabled or ldap
 	if config.HTTP.RawAccessControl != nil {
 		if config.HTTP.Auth == nil || (config.HTTP.Auth.HTPasswd.Path == "" && config.HTTP.Auth.LDAP == nil) {
-			log.Error().Err(errors.ErrBadConfig).
-				Msg("access control config requires httpasswd or ldap authentication to be enabled")
-
-			return errors.ErrBadConfig
+			// checking for default policy only authorization config: no users, no policies but default policy
+			checkForDefaultPolicyConfig(config)
 		}
 	}
 
@@ -237,30 +236,6 @@ func validateConfiguration(config *config.Config) error {
 			log.Error().Err(errors.ErrBadConfig).Msg("sync supports only filesystem storage")
 
 			return errors.ErrBadConfig
-		}
-	}
-
-	// check glob patterns in sync config are compilable
-	if config.Extensions != nil && config.Extensions.Sync != nil {
-		for id, regCfg := range config.Extensions.Sync.Registries {
-			// check retry options are configured for sync
-			if regCfg.MaxRetries != nil && regCfg.RetryDelay == nil {
-				log.Error().Err(errors.ErrBadConfig).Msgf("extensions.sync.registries[%d].retryDelay"+
-					" is required when using extensions.sync.registries[%d].maxRetries", id, id)
-
-				return errors.ErrBadConfig
-			}
-
-			if regCfg.Content != nil {
-				for _, content := range regCfg.Content {
-					ok := glob.ValidatePattern(content.Prefix)
-					if !ok {
-						log.Error().Err(glob.ErrBadPattern).Str("pattern", content.Prefix).Msg("sync pattern could not be compiled")
-
-						return glob.ErrBadPattern
-					}
-				}
-			}
 		}
 	}
 
@@ -295,6 +270,15 @@ func validateConfiguration(config *config.Config) error {
 	}
 
 	return nil
+}
+
+func checkForDefaultPolicyConfig(config *config.Config) {
+	if !isDefaultPolicyConfig(config) {
+		log.Error().Err(errors.ErrBadConfig).
+			Msg("access control config requires httpasswd, ldap authentication " +
+				"or using only 'defaultPolicy' policies")
+		panic(errors.ErrBadConfig)
+	}
 }
 
 func applyDefaultValues(config *config.Config, viperInstance *viper.Viper) {
@@ -349,27 +333,26 @@ func applyDefaultValues(config *config.Config, viperInstance *viper.Viper) {
 			}
 
 			if config.Extensions.Metrics.Prometheus == nil {
-				config.Extensions.Metrics.Prometheus = &extconf.PrometheusConfig{Path: "/metrics"}
+				config.Extensions.Metrics.Prometheus = &extconf.PrometheusConfig{Path: constants.DefaultMetricsExtensionRoute}
 			}
 		}
 	}
 
-	if config.DistSpecVersion != distspec.Version {
-		log.Warn().Err(errors.ErrBadConfig).
-			Msgf("config dist-spec version: %s differs from version actually used: %s, will be corrected automatically",
-				config.DistSpecVersion, distspec.Version)
-
-		// rewrite the config file
-		viperInstance.Set("distSpecVersion", distspec.Version)
-
-		err := viperInstance.WriteConfig()
-		if err != nil {
-			log.Warn().Err(errors.ErrBadConfig).
-				Msg("can't rewrite the config file")
-		}
-
-		config.DistSpecVersion = distspec.Version
+	if !config.Storage.GC && viperInstance.Get("storage::gcdelay") == nil {
+		config.Storage.GCDelay = 0
 	}
+}
+
+func updateDistSpecVersion(config *config.Config) {
+	if config.DistSpecVersion == distspec.Version {
+		return
+	}
+
+	log.Warn().
+		Msgf("config dist-spec version: %s differs from version actually used: %s",
+			config.DistSpecVersion, distspec.Version)
+
+	config.DistSpecVersion = distspec.Version
 }
 
 func LoadConfiguration(config *config.Config, configPath string) error {
@@ -392,8 +375,14 @@ func LoadConfiguration(config *config.Config, configPath string) error {
 		return err
 	}
 
-	if len(metaData.Keys) == 0 || len(metaData.Unused) > 0 {
-		log.Error().Err(errors.ErrBadConfig).Msg("bad configuration, retry writing it")
+	if len(metaData.Keys) == 0 {
+		log.Error().Err(errors.ErrBadConfig).Msgf("config doesn't contain any key:value pair")
+
+		return errors.ErrBadConfig
+	}
+
+	if len(metaData.Unused) > 0 {
+		log.Error().Err(errors.ErrBadConfig).Msgf("unknown keys: %v", metaData.Unused)
 
 		return errors.ErrBadConfig
 	}
@@ -411,6 +400,124 @@ func LoadConfiguration(config *config.Config, configPath string) error {
 	// various config checks
 	if err := validateConfiguration(config); err != nil {
 		return err
+	}
+
+	// update distSpecVersion
+	updateDistSpecVersion(config)
+
+	return nil
+}
+
+func isDefaultPolicyConfig(cfg *config.Config) bool {
+	adminPolicy := cfg.AccessControl.AdminPolicy
+
+	log.Info().Msg("checking if default authorization is possible")
+
+	if len(adminPolicy.Actions)+len(adminPolicy.Users) > 0 {
+		log.Info().Msg("admin policy detected, default authorization disabled")
+
+		return false
+	}
+
+	for _, repository := range cfg.AccessControl.Repositories {
+		for _, policy := range repository.Policies {
+			if len(policy.Actions)+len(policy.Users) > 0 {
+				log.Info().Interface("repository", repository).
+					Msg("repository with non-empty policy detected, default authorization disabled")
+
+				return false
+			}
+		}
+	}
+
+	log.Info().Msg("default authorization detected")
+
+	return true
+}
+
+func validateLDAP(config *config.Config) error {
+	// LDAP mandatory configuration
+	if config.HTTP.Auth != nil && config.HTTP.Auth.LDAP != nil {
+		ldap := config.HTTP.Auth.LDAP
+		if ldap.UserAttribute == "" {
+			log.Error().Str("userAttribute", ldap.UserAttribute).
+				Msg("invalid LDAP configuration, missing mandatory key: userAttribute")
+
+			return errors.ErrLDAPConfig
+		}
+
+		if ldap.Address == "" {
+			log.Error().Str("address", ldap.Address).
+				Msg("invalid LDAP configuration, missing mandatory key: address")
+
+			return errors.ErrLDAPConfig
+		}
+
+		if ldap.BaseDN == "" {
+			log.Error().Str("basedn", ldap.BaseDN).
+				Msg("invalid LDAP configuration, missing mandatory key: basedn")
+
+			return errors.ErrLDAPConfig
+		}
+	}
+
+	return nil
+}
+
+func validateGC(config *config.Config) error {
+	// enforce GC params
+	if config.Storage.GCDelay < 0 {
+		log.Error().Err(errors.ErrBadConfig).
+			Msgf("invalid garbage-collect delay %v specified", config.Storage.GCDelay)
+
+		return errors.ErrBadConfig
+	}
+
+	if config.Storage.GCInterval < 0 {
+		log.Error().Err(errors.ErrBadConfig).
+			Msgf("invalid garbage-collect interval %v specified", config.Storage.GCInterval)
+
+		return errors.ErrBadConfig
+	}
+
+	if !config.Storage.GC {
+		if config.Storage.GCDelay != 0 {
+			log.Warn().Err(errors.ErrBadConfig).
+				Msg("garbage-collect delay specified without enabling garbage-collect, will be ignored")
+		}
+
+		if config.Storage.GCInterval != 0 {
+			log.Warn().Err(errors.ErrBadConfig).
+				Msg("periodic garbage-collect interval specified without enabling garbage-collect, will be ignored")
+		}
+	}
+
+	return nil
+}
+
+func validateSync(config *config.Config) error {
+	// check glob patterns in sync config are compilable
+	if config.Extensions != nil && config.Extensions.Sync != nil {
+		for id, regCfg := range config.Extensions.Sync.Registries {
+			// check retry options are configured for sync
+			if regCfg.MaxRetries != nil && regCfg.RetryDelay == nil {
+				log.Error().Err(errors.ErrBadConfig).Msgf("extensions.sync.registries[%d].retryDelay"+
+					" is required when using extensions.sync.registries[%d].maxRetries", id, id)
+
+				return errors.ErrBadConfig
+			}
+
+			if regCfg.Content != nil {
+				for _, content := range regCfg.Content {
+					ok := glob.ValidatePattern(content.Prefix)
+					if !ok {
+						log.Error().Err(glob.ErrBadPattern).Str("pattern", content.Prefix).Msg("sync pattern could not be compiled")
+
+						return glob.ErrBadPattern
+					}
+				}
+			}
+		}
 	}
 
 	return nil

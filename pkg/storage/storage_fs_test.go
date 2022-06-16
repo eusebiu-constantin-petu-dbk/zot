@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	_ "crypto/sha256"
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/ioutil"
 	"math/big"
 	"os"
@@ -83,7 +85,8 @@ func TestStorageFSAPIs(t *testing.T) {
 			}
 
 			manifest.SchemaVersion = 2
-			manifestBuf, _ := json.Marshal(manifest)
+			manifestBuf, err := json.Marshal(manifest)
+			So(err, ShouldBeNil)
 			digest = godigest.FromBytes(manifestBuf)
 
 			err = os.Chmod(path.Join(imgStore.RootDir(), repoName, "index.json"), 0o000)
@@ -216,7 +219,8 @@ func TestDedupeLinks(t *testing.T) {
 			},
 		}
 		manifest.SchemaVersion = 2
-		manifestBuf, _ := json.Marshal(manifest)
+		manifestBuf, err := json.Marshal(manifest)
+		So(err, ShouldBeNil)
 		digest = godigest.FromBytes(manifestBuf)
 		_, err = imgStore.PutImageManifest("dedupe1", digest.String(), ispec.MediaTypeImageManifest, manifestBuf)
 		So(err, ShouldBeNil)
@@ -272,7 +276,8 @@ func TestDedupeLinks(t *testing.T) {
 			},
 		}
 		manifest.SchemaVersion = 2
-		manifestBuf, _ = json.Marshal(manifest)
+		manifestBuf, err = json.Marshal(manifest)
+		So(err, ShouldBeNil)
 		digest = godigest.FromBytes(manifestBuf)
 		_, err = imgStore.PutImageManifest("dedupe2", "1.0", ispec.MediaTypeImageManifest, manifestBuf)
 		So(err, ShouldBeNil)
@@ -778,7 +783,8 @@ func TestGarbageCollect(t *testing.T) {
 			}
 
 			manifest.SchemaVersion = 2
-			manifestBuf, _ := json.Marshal(manifest)
+			manifestBuf, err := json.Marshal(manifest)
+			So(err, ShouldBeNil)
 			digest := godigest.FromBytes(manifestBuf)
 
 			_, err = imgStore.PutImageManifest(repoName, tag, ispec.MediaTypeImageManifest, manifestBuf)
@@ -865,7 +871,8 @@ func TestGarbageCollect(t *testing.T) {
 			}
 
 			manifest.SchemaVersion = 2
-			manifestBuf, _ := json.Marshal(manifest)
+			manifestBuf, err := json.Marshal(manifest)
+			So(err, ShouldBeNil)
 			digest := godigest.FromBytes(manifestBuf)
 
 			_, err = imgStore.PutImageManifest(repoName, tag, ispec.MediaTypeImageManifest, manifestBuf)
@@ -944,7 +951,8 @@ func TestGarbageCollect(t *testing.T) {
 			}
 
 			manifest.SchemaVersion = 2
-			manifestBuf, _ := json.Marshal(manifest)
+			manifestBuf, err := json.Marshal(manifest)
+			So(err, ShouldBeNil)
 
 			_, err = imgStore.PutImageManifest(repo1Name, tag, ispec.MediaTypeImageManifest, manifestBuf)
 			So(err, ShouldBeNil)
@@ -1006,7 +1014,8 @@ func TestGarbageCollect(t *testing.T) {
 			}
 
 			manifest.SchemaVersion = 2
-			manifestBuf, _ = json.Marshal(manifest)
+			manifestBuf, err = json.Marshal(manifest)
+			So(err, ShouldBeNil)
 
 			_, err = imgStore.PutImageManifest(repo2Name, tag, ispec.MediaTypeImageManifest, manifestBuf)
 			So(err, ShouldBeNil)
@@ -1061,7 +1070,8 @@ func TestGarbageCollect(t *testing.T) {
 			}
 
 			manifest.SchemaVersion = 2
-			manifestBuf, _ = json.Marshal(manifest)
+			manifestBuf, err = json.Marshal(manifest)
+			So(err, ShouldBeNil)
 			digest := godigest.FromBytes(manifestBuf)
 
 			_, err = imgStore.PutImageManifest(repo2Name, tag, ispec.MediaTypeImageManifest, manifestBuf)
@@ -1075,6 +1085,72 @@ func TestGarbageCollect(t *testing.T) {
 
 			_, _, _, err = imgStore.GetImageManifest(repo2Name, digest.String())
 			So(err, ShouldBeNil)
+		})
+	})
+}
+
+func TestGarbageCollectForImageStore(t *testing.T) {
+	Convey("Garbage collect for a specific repo from an ImageStore", t, func(c C) {
+		dir := t.TempDir()
+
+		Convey("Garbage collect error for repo with config removed", func() {
+			logFile, _ := ioutil.TempFile("", "zot-log*.txt")
+
+			defer os.Remove(logFile.Name()) // clean up
+
+			log := log.NewLogger("debug", logFile.Name())
+			metrics := monitoring.NewMetricsServer(false, log)
+			imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics)
+			repoName := "gc-all-repos-short"
+
+			err := test.CopyFiles("../../test/data/zot-test", path.Join(dir, repoName))
+			if err != nil {
+				panic(err)
+			}
+
+			var manifestDigest godigest.Digest
+			manifestDigest, _, _ = test.GetOciLayoutDigests("../../test/data/zot-test")
+			err = os.Remove(path.Join(dir, repoName, "blobs/sha256", manifestDigest.Encoded()))
+			if err != nil {
+				panic(err)
+			}
+
+			imgStore.RunGCRepo(repoName)
+
+			time.Sleep(500 * time.Millisecond)
+
+			data, err := os.ReadFile(logFile.Name())
+			So(err, ShouldBeNil)
+			So(string(data), ShouldContainSubstring,
+				fmt.Sprintf("error while running GC for %s", path.Join(imgStore.RootDir(), repoName)))
+		})
+
+		Convey("Garbage collect error - not enough permissions to access index.json", func() {
+			logFile, _ := ioutil.TempFile("", "zot-log*.txt")
+
+			defer os.Remove(logFile.Name()) // clean up
+
+			log := log.NewLogger("debug", logFile.Name())
+			metrics := monitoring.NewMetricsServer(false, log)
+			imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics)
+			repoName := "gc-all-repos-short"
+
+			err := test.CopyFiles("../../test/data/zot-test", path.Join(dir, repoName))
+			if err != nil {
+				panic(err)
+			}
+
+			So(os.Chmod(path.Join(dir, repoName, "index.json"), 0o000), ShouldBeNil)
+
+			imgStore.RunGCRepo(repoName)
+
+			time.Sleep(500 * time.Millisecond)
+
+			data, err := os.ReadFile(logFile.Name())
+			So(err, ShouldBeNil)
+			So(string(data), ShouldContainSubstring,
+				fmt.Sprintf("error while running GC for %s", path.Join(imgStore.RootDir(), repoName)))
+			So(os.Chmod(path.Join(dir, repoName, "index.json"), 0o755), ShouldBeNil)
 		})
 	})
 }
@@ -1093,4 +1169,77 @@ func randSeq(n int) string {
 	}
 
 	return string(buf)
+}
+
+func TestInitRepo(t *testing.T) {
+	Convey("Get error when creating BlobUploadDir subdir on initRepo", t, func() {
+		dir := t.TempDir()
+
+		log := log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, log)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+
+		err := os.Mkdir(path.Join(dir, "test-dir"), 0o000)
+		So(err, ShouldBeNil)
+
+		err = imgStore.InitRepo("test-dir")
+		So(err, ShouldNotBeNil)
+	})
+}
+
+func TestValidateRepo(t *testing.T) {
+	Convey("Get error when unable to read directory", t, func() {
+		dir := t.TempDir()
+
+		log := log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, log)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+
+		err := os.Mkdir(path.Join(dir, "test-dir"), 0o000)
+		So(err, ShouldBeNil)
+
+		_, err = imgStore.ValidateRepo("test-dir")
+		So(err, ShouldNotBeNil)
+	})
+}
+
+func TestGetRepositoriesError(t *testing.T) {
+	Convey("Get error when returning relative path", t, func() {
+		dir := t.TempDir()
+
+		log := log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, log)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+
+		// create valid directory with permissions
+		err := os.Mkdir(path.Join(dir, "test-dir"), 0o755)
+		So(err, ShouldBeNil)
+
+		err = ioutil.WriteFile(path.Join(dir, "test-dir/test-file"), []byte("this is test file"), 0o000)
+		So(err, ShouldBeNil)
+
+		_, err = imgStore.GetRepositories()
+		So(err, ShouldBeNil)
+	})
+}
+
+func TestPutBlobChunkStreamed(t *testing.T) {
+	Convey("Get error on opening file", t, func() {
+		dir := t.TempDir()
+
+		log := log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, log)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+
+		uuid, err := imgStore.NewBlobUpload("test")
+		So(err, ShouldBeNil)
+
+		var reader io.Reader
+		blobPath := imgStore.BlobUploadPath("test", uuid)
+		err = os.Chmod(blobPath, 0o000)
+		So(err, ShouldBeNil)
+
+		_, err = imgStore.PutBlobChunkStreamed("test", uuid, reader)
+		So(err, ShouldNotBeNil)
+	})
 }
