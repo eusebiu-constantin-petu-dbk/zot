@@ -1,18 +1,17 @@
 name: 'Sync golang image from docker to ghcr'
 on:
-  workflow_dispatch:
-    inputs:
-      golang_version:
-        required: true
-        description: The version of golang to push to ghcr.io/project-zot/*.
-        type: string
+  schedule:
+    - cron: '30 1 * * *'
+  push:
+    branches:
+      - master
 
 env:
-  GOLANG_VERSION: ${{ github.event.inputs.golang_version }}
+  GOLANG_VERSION: 1.18
 
 jobs:
   sync-golang:
-    name: 'pull & push golang'
+    name: 'sync'
     runs-on: ubuntu-latest
     steps:
       - name: Log in to GitHub Docker Registry
@@ -22,7 +21,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Tag and push to ghcr
+      - name: Tag and push golang to ghcr
         run: |
           docker pull golang:${{ env.GOLANG_VERSION }}
           docker tag golang:${{ env.GOLANG_VERSION }} ghcr.io/${{ github.repository_owner }}/golang:${{ env.GOLANG_VERSION }}
