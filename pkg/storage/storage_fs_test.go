@@ -163,6 +163,58 @@ func TestStorageFSAPIs(t *testing.T) {
 	})
 }
 
+func FuzzNewBlobUploadPath(f *testing.F) {
+	f.Add("test")
+	f.Add("test2")
+	f.Fuzz(func(t *testing.T, a string) {
+		dir := t.TempDir()
+		defer os.RemoveAll(dir)
+		fmt.Printf("Input argument is %s", a)
+		log := log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, log)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+
+		_, err := imgStore.NewBlobUpload(a)
+		if err != nil {
+			return
+		}
+	})
+}
+
+func FuzzStorageFSAPIs(f *testing.F) {
+	f.Add("test-data1")
+	f.Fuzz(func(t *testing.T, data string) {
+		dir := t.TempDir()
+		defer os.RemoveAll(dir)
+
+		log := log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, log)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+
+		repoName := "test"
+
+		upload, err := imgStore.NewBlobUpload("test")
+		if err != nil {
+			return
+		}
+
+		content := []byte(data)
+		buf := bytes.NewBuffer(content)
+		buflen := buf.Len()
+		digest := godigest.FromBytes(content)
+
+		_, err = imgStore.PutBlobChunk(repoName, upload, 0, int64(buflen), buf)
+		if err != nil {
+			return
+		}
+
+		err = imgStore.FinishBlobUpload("test", upload, buf, digest.String())
+		if err != nil {
+			return
+		}
+	})
+}
+
 func TestDedupeLinks(t *testing.T) {
 	dir := t.TempDir()
 

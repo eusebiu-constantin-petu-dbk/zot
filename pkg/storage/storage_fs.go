@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	apexlog "github.com/apex/log"
 	guuid "github.com/gofrs/uuid"
@@ -826,6 +827,12 @@ func (is *ImageStoreFS) BlobUploadPath(repo, uuid string) string {
 
 // NewBlobUpload returns the unique ID for an upload in progress.
 func (is *ImageStoreFS) NewBlobUpload(repo string) (string, error) {
+	if !utf8.ValidString(repo) || repo == "\x00" {
+		err := errors.New("input is not valid UTF-8")
+		is.log.Error().Err(err).Msg("input is not valid UTF-8")
+		return "", err
+	}
+
 	if err := is.InitRepo(repo); err != nil {
 		is.log.Error().Err(err).Msg("error initializing repo")
 

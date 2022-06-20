@@ -6,15 +6,19 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	// "fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	fuzz "github.com/AdaLogics/go-fuzz-headers"
 	"github.com/gorilla/mux"
 	"github.com/opencontainers/go-digest"
+	imeta "github.com/opencontainers/image-spec/specs-go"
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	. "github.com/smartystreets/goconvey/convey"
@@ -306,6 +310,196 @@ func (is *MockedImageStore) RunGCRepo(repo string) {
 	if is != nil && is.runGCRepoFn != nil {
 		is.runGCRepoFn(repo)
 	}
+}
+
+func FuzzTestGetManifest(f *testing.F) {
+	f.Add([]byte("b8b1231908844a55c251211c7a67ae3c809fb86a081a8eeb4a715e6d7d65625c"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		f := fuzz.NewConsumer(data)
+		digestBytes, err := f.GetBytes()
+		if err != nil {
+			return
+		}
+		if len(digestBytes) == 0 {
+			return
+		}
+
+		digest := digest.FromBytes(digestBytes)
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+
+		ctlr := api.NewController(conf)
+
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
+		ctlr.Config.Storage.Commit = true
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		rthdlr := api.NewRouteHandler(ctlr)
+
+		ctlr.StoreController.DefaultStore = &MockedImageStore{
+			getImageManifestFn: func(repo string, reference string) ([]byte, string, string, error) {
+				return []byte{}, "", "", zerr.ErrRepoBadVersion
+			},
+		}
+
+		request, _ := http.NewRequestWithContext(context.TODO(), "GET", baseURL, nil)
+		request = mux.SetURLVars(request, map[string]string{
+			"name":      "test",
+			"reference": digest.String(),
+		})
+
+		response := httptest.NewRecorder()
+
+		rthdlr.GetManifest(response, request)
+
+		resp := response.Result()
+		defer resp.Body.Close()
+
+		if resp == nil || resp.StatusCode == http.StatusOK {
+			return
+		}
+	})
+}
+
+func FuzzTestPutManifest(f *testing.F) {
+	f.Add([]byte("this is a blob"))
+	// f.Add([]byte("this is a blob"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		f := fuzz.NewConsumer(data)
+		digestBytes, err := f.GetBytes()
+		if err != nil {
+			return
+		}
+		if len(digestBytes) == 0 {
+			return
+		}
+
+		digest := digest.FromBytes(digestBytes)
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+
+		ctlr := api.NewController(conf)
+
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
+		ctlr.Config.Storage.Commit = true
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		rthdlr := api.NewRouteHandler(ctlr)
+
+		ctlr.StoreController.DefaultStore = &MockedImageStore{
+			putImageManifestFn: func(repo string, reference string, mediaType string, body []byte) (string, error) {
+				return "", zerr.ErrManifestNotFound
+			},
+		}
+
+		reqBody, err := json.Marshal(newRandomImgManifest(f, "test"))
+
+		request, _ := http.NewRequestWithContext(context.TODO(), "PUT", baseURL, bytes.NewReader(reqBody))
+		request = mux.SetURLVars(request, map[string]string{
+			"name":      "test",
+			"reference": digest.String(),
+		})
+
+		response := httptest.NewRecorder()
+
+		rthdlr.UpdateManifest(response, request)
+
+		resp := response.Result()
+		defer resp.Body.Close()
+
+		// if resp == nil || resp.StatusCode == http.StatusOK {
+		// 	return
+		// }
+		if resp == nil {
+			return
+		}
+		
+	})
+}
+
+func newRandomImgManifest(f *fuzz.ConsumeFuzzer, name string) *ispec.Manifest {
+	cdigest, cblob, err := newRandomBlobForFuzz(f)
+	layerContent, err := f.GetBytes()
+	if err != nil {
+		return &ispec.Manifest{
+			MediaType: "application/vnd.oci.image.manifest.v1+json",
+		}
+	}
+	layerDigest := digest.FromBytes(layerContent)
+
+	if err != nil {
+		return &ispec.Manifest{
+			MediaType: "application/vnd.oci.image.manifest.v1+json",
+		}
+	}
+	annotationsMap := make(map[string]string)
+	key, err := f.GetString()
+	val, err := f.GetString()
+	if err != nil {
+		panic(err)
+	}
+	annotationsMap[key]= val
+	// err = f.FuzzMap(&annotationsMap)
+	// if err != nil {
+	// 	// fmt.Printf("error occured while generating fuzzed map, %e \n", err)
+	// 	panic(err)
+	// }
+	// annotations, ok := annotationsReflect.Interface().([]string)
+	// if !ok {
+	// 	panic("type assertion failed to provide []string")
+	// }
+	// aopts := options.AnnotationOptions{Annotations: annotations}
+	// amap, err  := aopts.AnnotationsMap()
+	// if err != nil {
+	// 	return &ispec.Manifest{
+	// 		MediaType: "application/vnd.oci.image.manifest.v1+json",
+	// 	}
+	// }
+	schemaVersion, err := f.GetInt()
+	if err != nil {
+		panic("error genereting fuzzed int")
+	}
+
+	manifest := ispec.Manifest{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Config: ispec.Descriptor{
+			MediaType: "application/vnd.oci.image.config.v1+json",
+			Digest:    cdigest,
+			Size:      int64(len(cblob)),
+		},
+		Layers: []ispec.Descriptor{
+			{
+				MediaType: "application/vnd.oci.image.layer.v1.tar",
+				Digest:    layerDigest,
+				Size:      int64(len(layerContent)),
+			},
+		},
+		Annotations: annotationsMap,
+		Versioned: imeta.Versioned{
+			SchemaVersion: schemaVersion,
+		},
+	}
+
+	return &manifest
+}
+
+func newRandomBlobForFuzz(f *fuzz.ConsumeFuzzer) (digest.Digest, []byte, error) {
+	blob, err := f.GetBytes()
+	if err != nil {
+		return digest.FromBytes([]byte("0")), nil, err
+	}
+
+	return digest.FromBytes(blob), blob, nil
 }
 
 func TestRoutes(t *testing.T) {
