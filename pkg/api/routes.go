@@ -36,6 +36,7 @@ import (
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
 	"zotregistry.io/zot/pkg/test" // nolint: goimports
+
 	// as required by swaggo.
 	_ "zotregistry.io/zot/swagger"
 )
@@ -436,6 +437,7 @@ func (rh *RouteHandler) UpdateManifest(response http.ResponseWriter, request *ht
 	}
 
 	mediaType := request.Header.Get("Content-Type")
+	rh.c.Log.Info().Msgf("mediaType %v", mediaType)
 	if !storage.IsSupportedMediaType(mediaType) {
 		response.WriteHeader(http.StatusUnsupportedMediaType)
 
