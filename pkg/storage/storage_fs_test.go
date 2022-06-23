@@ -15,7 +15,10 @@ import (
 	"testing"
 	"time"
 
+	fuzz "github.com/AdaLogics/go-fuzz-headers"
+	"github.com/opencontainers/go-digest"
 	godigest "github.com/opencontainers/go-digest"
+	imeta "github.com/opencontainers/image-spec/specs-go"
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/rs/zerolog"
 	. "github.com/smartystreets/goconvey/convey"
@@ -179,6 +182,222 @@ func FuzzNewBlobUploadPath(f *testing.F) {
 			return
 		}
 	})
+}
+
+func FuzzTestPutGetImageManifest(f *testing.F) {
+	f.Add([]byte("this is a blob"))
+	f.Add([]byte("this is yet another blob"))
+	f.Add([]byte("one 2 three, it's coming for me"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		f := fuzz.NewConsumer(data)
+
+		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, *log)
+		repoName := "test"
+
+		dir := t.TempDir()
+		defer os.RemoveAll(dir)
+
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, *log, metrics)
+
+		cblob, cdigest := test.GetRandomImageConfig()
+
+		ldigest, lblob, err := newRandomBlobForFuzz(data)
+		if err != nil {
+			t.Errorf("error occured while generating random blob, %v", err)
+		}
+
+		imgStore.FullBlobUpload(repoName, bytes.NewReader([]byte(cblob)), cdigest.String())
+		imgStore.FullBlobUpload(repoName, bytes.NewReader([]byte(lblob)), ldigest.String())
+
+		manifest, err := NewRandomImgManifest(f, cdigest, ldigest , cblob, lblob)
+		if err != nil {
+			return
+		}
+		content, err := json.Marshal(manifest)
+		if err != nil {
+			return
+		}
+		manifestBuf,err := json.Marshal(manifest)
+		if err != nil {
+			t.Errorf("Error %v occured while marshaling manifest", err)
+		}
+		mdigest := godigest.FromBytes(manifestBuf)
+		// tag := "1.0"
+		_, err = imgStore.PutImageManifest(repoName, mdigest.String(), ispec.MediaTypeImageManifest, content)
+		if err != nil && err != errors.ErrBadManifest {
+			t.Errorf("the error that occured is %v \n", err)
+		}
+		_, _, _, err = imgStore.GetImageManifest(repoName, mdigest.String())
+		if err != nil {
+			t.Errorf("the error that occured is %v \n", err)
+		}
+	})
+}
+
+func FuzzTestDeleteImageManifest(f *testing.F) {
+	f.Add([]byte("this is a blob"))
+	f.Add([]byte("this is yet another blob"))
+	f.Add([]byte("one 2 three, it's coming for me"))
+	
+	f.Fuzz(func(t *testing.T, data []byte)  {
+		//f := fuzz.NewConsumer(data)
+
+		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, *log)
+		repoName := "test"
+
+		dir := t.TempDir()
+		defer os.RemoveAll(dir)
+
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, *log, metrics)
+
+		digest, _, err :=newRandomBlobForFuzz(data)
+		if err != nil {
+			return
+		}
+		_ = imgStore.DeleteImageManifest(repoName, digest.String())
+				
+	})
+
+}
+
+func FuzzDirExists(f *testing.F) {
+	f.Add("test/data")
+	f.Fuzz(func(t * testing.T, data string){
+		_ = storage.DirExists(data)
+	})
+}
+
+func FuzzInitRepo(f *testing.F) {
+	f.Add("test")
+	f.Add("code42")
+	f.Add("RaNdOm")
+	f.Fuzz(func(t *testing.T, data string){
+		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, *log)
+
+		dir := t.TempDir()
+		defer os.RemoveAll(dir)
+
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, *log, metrics)
+		_ = imgStore.InitRepo(data)
+	})
+}
+
+// func FuzzTestGetImageManifest(f *testing.F) {
+// 	f.Add("this is a blob")
+// 	f.Fuzz(func(t *testing.T, data string) {
+// 		f := fuzz.NewConsumer([]byte(data))
+// 		dir := t.TempDir()
+// 		defer os.RemoveAll(dir)
+
+// 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
+// 		metrics := monitoring.NewMetricsServer(false, log)
+// 		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+// 		repoName := "test"
+
+// 		err := imgStore.InitRepo(repoName)
+// 		if err != nil {
+// 			return
+// 		}
+
+// 		cdigest, cblob, err := newRandomBlobForFuzz([]byte(data))
+// 		if err != nil {
+// 			t.Errorf("error occured while generating random blob, %v", err)
+// 		}
+
+// 		manifest, err := NewRandomImgManifest(f, cdigest, cdigest, cblob, cblob)
+// 		if err != nil {
+// 			return
+// 		}
+// 		manBuf, err := json.Marshal(manifest)
+// 		digest := godigest.FromBytes(manBuf)
+// 		if err != nil {
+// 			return
+// 		}
+// 		_, _, _, err = imgStore.GetImageManifest(repoName, digest.String())
+// 		if err != errors.ErrManifestNotFound {
+// 			return
+// 		}
+// 	})
+// }
+
+func NewRandomImgManifest(f *fuzz.ConsumeFuzzer, cdigest, ldigest digest.Digest, cblob, lblob []byte) (*ispec.Manifest, error) {
+	// cdigest, cblob, err := newRandomBlobForFuzz(f)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// layerContent, err := f.GetBytes()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// layerDigest := digest.FromBytes(layerContent)
+
+	// if err != nil {
+	// 	return nil, err
+	// }
+	annotationsMap := make(map[string]string)
+	key, err := f.GetString()
+	if err != nil {
+		return nil, err
+	}
+	val, err := f.GetString()
+	if err != nil {
+		return nil, err
+	}
+	annotationsMap[key] = val
+	// err = f.FuzzMap(&annotationsMap)
+	// if err != nil {
+	// 	// fmt.Printf("error occured while generating fuzzed map, %e \n", err)
+	// 	panic(err)
+	// }
+	// annotations, ok := annotationsReflect.Interface().([]string)
+	// if !ok {
+	// 	panic("type assertion failed to provide []string")
+	// }
+	// aopts := options.AnnotationOptions{Annotations: annotations}
+	// amap, err  := aopts.AnnotationsMap()
+	// if err != nil {
+	// 	return &ispec.Manifest{
+	// 		MediaType: "application/vnd.oci.image.manifest.v1+json",
+	// 	}
+	// }
+	schemaVersion := 2
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	manifest := ispec.Manifest{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Config: ispec.Descriptor{
+			MediaType: "application/vnd.oci.image.config.v1+json",
+			Digest:    cdigest,
+			Size:      int64(len(cblob)),
+		},
+		Layers: []ispec.Descriptor{
+			{
+				MediaType: "application/vnd.oci.image.layer.v1.tar",
+				Digest:    ldigest,
+				Size:      int64(len(lblob)),
+			},
+		},
+		Annotations: annotationsMap,
+		Versioned: imeta.Versioned{
+			SchemaVersion: schemaVersion,
+		},
+	}
+
+	return &manifest, nil
+}
+
+func newRandomBlobForFuzz(f []byte) (digest.Digest, []byte, error) {
+	// blob, err := f.GetBytes()
+	// if err != nil {
+	// 	return digest.FromBytes([]byte("0")), nil, err
+	// }
+
+	return digest.FromBytes(f), f, nil
 }
 
 func FuzzStorageFSAPIs(f *testing.F) {

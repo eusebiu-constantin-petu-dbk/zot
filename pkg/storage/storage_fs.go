@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -1642,7 +1644,16 @@ func ifOlderThan(imgStore *ImageStoreFS, repo string, delay time.Duration) casex
 }
 
 func DirExists(d string) bool {
+	if !utf8.ValidString(d) {
+		return false
+	}
+	
 	fi, err := os.Stat(d)
+	if err != nil {
+		if e, ok := err.(*fs.PathError); ok && e.Err == syscall.ENAMETOOLONG || e.Err == syscall.EINVAL { 
+			return false
+		}
+	}
 	if err != nil && os.IsNotExist(err) {
 		return false
 	}

@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+
+	// "encoding/json"
 	"errors"
 	// "fmt"
 	"io"
@@ -367,8 +369,9 @@ func FuzzTestGetManifest(f *testing.F) {
 }
 
 func FuzzTestPutManifest(f *testing.F) {
-	f.Add([]byte("this is a blob"))
 	// f.Add([]byte("this is a blob"))
+	// f.Add([]byte("this is a blob"))
+	f.Add([]byte{'r', 'a', 'n', 'd', 'o', 'm'})
 	f.Fuzz(func(t *testing.T, data []byte) {
 		f := fuzz.NewConsumer(data)
 		digestBytes, err := f.GetBytes()
@@ -402,9 +405,21 @@ func FuzzTestPutManifest(f *testing.F) {
 			},
 		}
 
-		reqBody, err := json.Marshal(newRandomImgManifest(f, "test"))
+		manifest, err := NewRandomImgManifest(f, "test")
+		if err != nil {
+			return
+		}
+		reqBody, err := json.Marshal(manifest)
+		if err != nil {
+			return
+		}
 
 		request, _ := http.NewRequestWithContext(context.TODO(), "PUT", baseURL, bytes.NewReader(reqBody))
+		request.Header.Add("Content-Type", ispec.MediaTypeImageManifest)
+		// if !json.Valid(data) {
+		// 	return
+		// }
+		// request, _ := http.NewRequestWithContext(context.TODO(), "PUT", baseURL, bytes.NewReader(data))
 		request = mux.SetURLVars(request, map[string]string{
 			"name":      "test",
 			"reference": digest.String(),
@@ -427,26 +442,22 @@ func FuzzTestPutManifest(f *testing.F) {
 	})
 }
 
-func newRandomImgManifest(f *fuzz.ConsumeFuzzer, name string) *ispec.Manifest {
+func NewRandomImgManifest(f *fuzz.ConsumeFuzzer, name string) (*ispec.Manifest, error) {
 	cdigest, cblob, err := newRandomBlobForFuzz(f)
 	layerContent, err := f.GetBytes()
 	if err != nil {
-		return &ispec.Manifest{
-			MediaType: "application/vnd.oci.image.manifest.v1+json",
-		}
+		return nil, err
 	}
 	layerDigest := digest.FromBytes(layerContent)
 
 	if err != nil {
-		return &ispec.Manifest{
-			MediaType: "application/vnd.oci.image.manifest.v1+json",
-		}
+		return nil, err
 	}
 	annotationsMap := make(map[string]string)
 	key, err := f.GetString()
 	val, err := f.GetString()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	annotationsMap[key]= val
 	// err = f.FuzzMap(&annotationsMap)
@@ -467,7 +478,7 @@ func newRandomImgManifest(f *fuzz.ConsumeFuzzer, name string) *ispec.Manifest {
 	// }
 	schemaVersion, err := f.GetInt()
 	if err != nil {
-		panic("error genereting fuzzed int")
+		return nil, err
 	}
 
 	manifest := ispec.Manifest{
@@ -490,7 +501,7 @@ func newRandomImgManifest(f *fuzz.ConsumeFuzzer, name string) *ispec.Manifest {
 		},
 	}
 
-	return &manifest
+	return &manifest, nil
 }
 
 func newRandomBlobForFuzz(f *fuzz.ConsumeFuzzer) (digest.Digest, []byte, error) {
