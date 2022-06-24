@@ -15,6 +15,7 @@ import (
 	godigest "github.com/opencontainers/go-digest"
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	. "github.com/smartystreets/goconvey/convey"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
@@ -31,7 +32,8 @@ func TestCheckAllBlobsIntegrity(t *testing.T) {
 
 	metrics := monitoring.NewMetricsServer(false, log)
 
-	imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+	imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+		true, true, log, metrics, lint.NewLinter(nil, log))
 
 	Convey("Scrub only one repo", t, func(c C) {
 		// initialize repo
@@ -117,10 +119,11 @@ func TestCheckAllBlobsIntegrity(t *testing.T) {
 		}
 
 		mnfst.SchemaVersion = 2
-		mb, err := json.Marshal(mnfst)
+		mbytes, err := json.Marshal(mnfst)
 		So(err, ShouldBeNil)
 
-		manifest, err = imgStore.PutImageManifest(repoName, tag, ispec.MediaTypeImageManifest, mb)
+		manifest, err = imgStore.PutImageManifest(repoName, tag, ispec.MediaTypeImageManifest,
+			mbytes)
 		So(err, ShouldBeNil)
 
 		Convey("Blobs integrity not affected", func() {

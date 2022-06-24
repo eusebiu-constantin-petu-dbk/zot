@@ -21,6 +21,7 @@ import (
 	"zotregistry.io/zot/pkg/api/config"
 	ext "zotregistry.io/zot/pkg/extensions"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
@@ -218,6 +219,13 @@ func (c *Controller) Run(reloadCtx context.Context) error {
 func (c *Controller) InitImageStore(reloadCtx context.Context) error {
 	c.StoreController = storage.StoreController{}
 
+	var linter lint.Linter
+	if c.Config.Extensions == nil {
+		linter = lint.NewLinter(nil, c.Log)
+	} else {
+		linter = lint.NewLinter(c.Config.Extensions.Lint, c.Log)
+	}
+
 	if c.Config.Storage.RootDirectory != "" {
 		// no need to validate hard links work on s3
 		if c.Config.Storage.Dedupe && c.Config.Storage.StorageDriver == nil {
@@ -233,7 +241,9 @@ func (c *Controller) InitImageStore(reloadCtx context.Context) error {
 		var defaultStore storage.ImageStore
 		if c.Config.Storage.StorageDriver == nil {
 			defaultStore = storage.NewImageStore(c.Config.Storage.RootDirectory,
-				c.Config.Storage.GC, c.Config.Storage.GCDelay, c.Config.Storage.Dedupe, c.Config.Storage.Commit, c.Log, c.Metrics)
+				c.Config.Storage.GC, c.Config.Storage.GCDelay,
+				c.Config.Storage.Dedupe, c.Config.Storage.Commit, c.Log, c.Metrics, linter,
+			)
 		} else {
 			storeName := fmt.Sprintf("%v", c.Config.Storage.StorageDriver["name"])
 			if storeName != storage.S3StorageDriverName {
@@ -257,7 +267,7 @@ func (c *Controller) InitImageStore(reloadCtx context.Context) error {
 
 			defaultStore = s3.NewImageStore(rootDir, c.Config.Storage.RootDirectory,
 				c.Config.Storage.GC, c.Config.Storage.GCDelay, c.Config.Storage.Dedupe,
-				c.Config.Storage.Commit, c.Log, c.Metrics, store)
+				c.Config.Storage.Commit, c.Log, c.Metrics, linter, store)
 		}
 
 		c.StoreController.DefaultStore = defaultStore
@@ -289,7 +299,7 @@ func (c *Controller) InitImageStore(reloadCtx context.Context) error {
 
 				if storageConfig.StorageDriver == nil {
 					subImageStore[route] = storage.NewImageStore(storageConfig.RootDirectory,
-						storageConfig.GC, storageConfig.GCDelay, storageConfig.Dedupe, storageConfig.Commit, c.Log, c.Metrics)
+						storageConfig.GC, storageConfig.GCDelay, storageConfig.Dedupe, storageConfig.Commit, c.Log, c.Metrics, linter)
 				} else {
 					storeName := fmt.Sprintf("%v", storageConfig.StorageDriver["name"])
 					if storeName != storage.S3StorageDriverName {
@@ -312,7 +322,9 @@ func (c *Controller) InitImageStore(reloadCtx context.Context) error {
 					}
 
 					subImageStore[route] = s3.NewImageStore(rootDir, storageConfig.RootDirectory,
-						storageConfig.GC, storageConfig.GCDelay, storageConfig.Dedupe, storageConfig.Commit, c.Log, c.Metrics, store)
+						storageConfig.GC, storageConfig.GCDelay,
+						storageConfig.Dedupe, storageConfig.Commit, c.Log, c.Metrics, linter, store,
+					)
 				}
 			}
 

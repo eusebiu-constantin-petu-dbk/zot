@@ -24,6 +24,7 @@ import (
 	"gopkg.in/resty.v1"
 	zerr "zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/common"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
@@ -270,7 +271,12 @@ func pushSyncedLocalImage(localRepo, tag, localCachePath string,
 	log.Info().Msgf("pushing synced local image %s/%s:%s to local registry", localCachePath, localRepo, tag)
 
 	metrics := monitoring.NewMetricsServer(false, log)
-	cacheImageStore := storage.NewImageStore(localCachePath, false, storage.DefaultGCDelay, false, false, log, metrics)
+
+	// linter not needed for cache image store
+	linter := lint.NewLinter(nil, log)
+
+	cacheImageStore := storage.NewImageStore(localCachePath, false,
+		storage.DefaultGCDelay, false, false, log, metrics, linter)
 
 	manifestContent, _, _, err := cacheImageStore.GetImageManifest(localRepo, tag)
 	if err != nil {
@@ -331,8 +337,16 @@ func pushSyncedLocalImage(localRepo, tag, localCachePath string,
 		}
 	}
 
-	_, err = imageStore.PutImageManifest(localRepo, tag, ispec.MediaTypeImageManifest, manifestContent)
+	_, err = imageStore.PutImageManifest(localRepo, tag,
+		ispec.MediaTypeImageManifest, manifestContent)
 	if err != nil {
+		if errors.Is(err, zerr.ErrImageLintAnnotations) {
+			log.Error().Str("errorType", TypeOf(err)).
+				Err(err).Msg("couldn't upload manifest because of missing annotations")
+
+			return nil
+		}
+
 		log.Error().Str("errorType", TypeOf(err)).
 			Err(err).Msg("couldn't upload manifest")
 

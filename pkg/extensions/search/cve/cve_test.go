@@ -22,6 +22,7 @@ import (
 	"zotregistry.io/zot/pkg/api/config"
 	"zotregistry.io/zot/pkg/api/constants"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/extensions/search/common"
 	cveinfo "zotregistry.io/zot/pkg/extensions/search/cve"
@@ -92,7 +93,11 @@ func testSetup() error {
 	log := log.NewLogger("debug", "")
 	metrics := monitoring.NewMetricsServer(false, log)
 
-	storeController := storage.StoreController{DefaultStore: storage.NewImageStore(dir, false, storage.DefaultGCDelay, false, false, log, metrics)}
+	conf := config.New()
+	conf.Extensions = &extconf.ExtensionConfig{}
+	conf.Extensions.Lint = &lint.Config{}
+
+	storeController := storage.StoreController{DefaultStore: storage.NewImageStore(dir, false, storage.DefaultGCDelay, false, false, log, metrics, lint.NewLinter(conf.Extensions.Lint, log))}
 
 	layoutUtils := common.NewOciLayoutUtils(storeController, log)
 
@@ -334,12 +339,16 @@ func TestMultipleStoragePath(t *testing.T) {
 		log := log.NewLogger("debug", "")
 		metrics := monitoring.NewMetricsServer(false, log)
 
+		conf := config.New()
+		conf.Extensions = &extconf.ExtensionConfig{}
+		conf.Extensions.Lint = &lint.Config{}
+
 		// Create ImageStore
-		firstStore := storage.NewImageStore(firstRootDir, false, storage.DefaultGCDelay, false, false, log, metrics)
+		firstStore := storage.NewImageStore(firstRootDir, false, storage.DefaultGCDelay, false, false, log, metrics, lint.NewLinter(conf.Extensions.Lint, log))
 
-		secondStore := storage.NewImageStore(secondRootDir, false, storage.DefaultGCDelay, false, false, log, metrics)
+		secondStore := storage.NewImageStore(secondRootDir, false, storage.DefaultGCDelay, false, false, log, metrics, lint.NewLinter(conf.Extensions.Lint, log))
 
-		thirdStore := storage.NewImageStore(thirdRootDir, false, storage.DefaultGCDelay, false, false, log, metrics)
+		thirdStore := storage.NewImageStore(thirdRootDir, false, storage.DefaultGCDelay, false, false, log, metrics, lint.NewLinter(conf.Extensions.Lint, log))
 
 		storeController := storage.StoreController{}
 

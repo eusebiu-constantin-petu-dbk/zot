@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,7 +24,9 @@ import (
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/rs/zerolog"
+	"github.com/sigstore/cosign/pkg/oci/remote"
 	zerr "zotregistry.io/zot/errors"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	zlog "zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
@@ -50,6 +53,7 @@ type ObjectStorage struct {
 	metrics          monitoring.MetricServer
 	cache            *storage.Cache
 	dedupe           bool
+	linter           lint.Linter
 }
 
 func (is *ObjectStorage) RootDir() string {
@@ -67,7 +71,7 @@ func (is *ObjectStorage) DirExists(d string) bool {
 // NewObjectStorage returns a new image store backed by cloud storages.
 // see https://github.com/docker/docker.github.io/tree/master/registry/storage-drivers
 func NewImageStore(rootDir string, cacheDir string, gc bool, gcDelay time.Duration, dedupe, commit bool,
-	log zlog.Logger, metrics monitoring.MetricServer,
+	log zlog.Logger, metrics monitoring.MetricServer, linter lint.Linter,
 	store driver.StorageDriver,
 ) storage.ImageStore {
 	imgStore := &ObjectStorage{
@@ -79,6 +83,7 @@ func NewImageStore(rootDir string, cacheDir string, gc bool, gcDelay time.Durati
 		multiPartUploads: sync.Map{},
 		metrics:          metrics,
 		dedupe:           dedupe,
+		linter:           linter,
 	}
 
 	cachePath := path.Join(cacheDir, CacheDBName+storage.DBExtensionName)
@@ -395,8 +400,8 @@ func (is *ObjectStorage) GetImageManifest(repo, reference string) ([]byte, strin
 
 // PutImageManifest adds an image manifest to the repository.
 func (is *ObjectStorage) PutImageManifest(repo, reference, mediaType string,
-	body []byte,
-) (string, error) {
+	body []byte) (string, error,
+) {
 	if err := is.InitRepo(repo); err != nil {
 		is.log.Debug().Err(err).Msg("init repo")
 
@@ -547,6 +552,18 @@ func (is *ObjectStorage) PutImageManifest(repo, reference, mediaType string,
 		is.log.Error().Err(err).Str("file", indexPath).Msg("unable to marshal JSON")
 
 		return "", err
+	}
+
+	// apply linter only on images, not signatures
+	if mediaType == ispec.MediaTypeImageManifest &&
+		// check that image manifest is not cosign signature
+		!strings.HasPrefix(reference, "sha256-") &&
+		!strings.HasSuffix(reference, remote.SignatureTagSuffix) {
+		// lint new index with new manifest before writing to disk
+		pass := is.linter.CheckMandatoryAnnotations(is.rootDir, repo, index, mDigest)
+		if !pass {
+			return "", zerr.ErrImageLintAnnotations
+		}
 	}
 
 	if err = is.store.PutContent(context.Background(), indexPath, buf); err != nil {

@@ -325,7 +325,9 @@ func TestRoutes(t *testing.T) {
 			panic(err)
 		}
 
+		// nolint: typecheck
 		go startServer(ctlr)
+		// nolint: typecheck
 		defer stopServer(ctlr)
 		test.WaitTillServerReady(baseURL)
 
@@ -381,7 +383,9 @@ func TestRoutes(t *testing.T) {
 					"reference": "reference",
 				},
 				&MockedImageStore{
-					putImageManifestFn: func(repo, reference, mediaType string, body []byte) (string, error) {
+					putImageManifestFn: func(repo, reference, mediaType string,
+						body []byte,
+					) (string, error) {
 						return "", zerr.ErrRepoNotFound
 					},
 				})
@@ -394,7 +398,9 @@ func TestRoutes(t *testing.T) {
 				},
 
 				&MockedImageStore{
-					putImageManifestFn: func(repo, reference, mediaType string, body []byte) (string, error) {
+					putImageManifestFn: func(repo, reference, mediaType string,
+						body []byte,
+					) (string, error) {
 						return "", zerr.ErrManifestNotFound
 					},
 				})
@@ -406,7 +412,8 @@ func TestRoutes(t *testing.T) {
 					"reference": "reference",
 				},
 				&MockedImageStore{
-					putImageManifestFn: func(repo, reference, mediaType string, body []byte) (string, error) {
+					putImageManifestFn: func(repo, reference, mediaType string, body []byte,
+					) (string, error) {
 						return "", zerr.ErrBadManifest
 					},
 				})
@@ -418,7 +425,9 @@ func TestRoutes(t *testing.T) {
 					"reference": "reference",
 				},
 				&MockedImageStore{
-					putImageManifestFn: func(repo, reference, mediaType string, body []byte) (string, error) {
+					putImageManifestFn: func(repo, reference, mediaType string,
+						body []byte,
+					) (string, error) {
 						return "", zerr.ErrBlobNotFound
 					},
 				})
@@ -431,7 +440,9 @@ func TestRoutes(t *testing.T) {
 					"reference": "reference",
 				},
 				&MockedImageStore{
-					putImageManifestFn: func(repo, reference, mediaType string, body []byte) (string, error) {
+					putImageManifestFn: func(repo, reference, mediaType string,
+						body []byte,
+					) (string, error) {
 						return "", zerr.ErrRepoBadVersion
 					},
 				})

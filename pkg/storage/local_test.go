@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog"
 	. "github.com/smartystreets/goconvey/convey"
 	"zotregistry.io/zot/errors"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
@@ -35,7 +36,8 @@ func TestStorageFSAPIs(t *testing.T) {
 
 	log := log.Logger{Logger: zerolog.New(os.Stdout)}
 	metrics := monitoring.NewMetricsServer(false, log)
-	imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+	imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true,
+		true, log, metrics, lint.NewLinter(nil, log))
 
 	Convey("Repo layout", t, func(c C) {
 		repoName := "test"
@@ -168,7 +170,8 @@ func TestDedupeLinks(t *testing.T) {
 
 	log := log.Logger{Logger: zerolog.New(os.Stdout)}
 	metrics := monitoring.NewMetricsServer(false, log)
-	imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+	imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+		true, true, log, metrics, lint.NewLinter(nil, log))
 
 	Convey("Dedupe", t, func(c C) {
 		// manifest1
@@ -222,7 +225,8 @@ func TestDedupeLinks(t *testing.T) {
 		manifestBuf, err := json.Marshal(manifest)
 		So(err, ShouldBeNil)
 		digest = godigest.FromBytes(manifestBuf)
-		_, err = imgStore.PutImageManifest("dedupe1", digest.String(), ispec.MediaTypeImageManifest, manifestBuf)
+		_, err = imgStore.PutImageManifest("dedupe1", digest.String(),
+			ispec.MediaTypeImageManifest, manifestBuf)
 		So(err, ShouldBeNil)
 
 		_, _, _, err = imgStore.GetImageManifest("dedupe1", digest.String())
@@ -306,7 +310,7 @@ func TestDedupe(t *testing.T) {
 
 			log := log.Logger{Logger: zerolog.New(os.Stdout)}
 			metrics := monitoring.NewMetricsServer(false, log)
-			il := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+			il := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics, lint.NewLinter(nil, log))
 
 			So(il.DedupeBlob("", "", ""), ShouldNotBeNil)
 		})
@@ -321,9 +325,11 @@ func TestNegativeCases(t *testing.T) {
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
 
-		So(storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics), ShouldNotBeNil)
+		So(storage.NewImageStore(dir, true, storage.DefaultGCDelay, true,
+			true, log, metrics, lint.NewLinter(nil, log)), ShouldNotBeNil)
 		if os.Geteuid() != 0 {
-			So(storage.NewImageStore("/deadBEEF", true, storage.DefaultGCDelay, true, true, log, metrics), ShouldBeNil)
+			So(storage.NewImageStore("/deadBEEF", true, storage.DefaultGCDelay,
+				true, true, log, metrics, lint.NewLinter(nil, log)), ShouldBeNil)
 		}
 	})
 
@@ -332,7 +338,8 @@ func TestNegativeCases(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+			true, true, log, metrics, lint.NewLinter(nil, log))
 
 		err := os.Chmod(dir, 0o000) // remove all perms
 		if err != nil {
@@ -367,7 +374,8 @@ func TestNegativeCases(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true,
+			true, log, metrics, lint.NewLinter(nil, log))
 
 		So(imgStore, ShouldNotBeNil)
 		So(imgStore.InitRepo("test"), ShouldBeNil)
@@ -481,7 +489,8 @@ func TestNegativeCases(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+			true, true, log, metrics, lint.NewLinter(nil, log))
 
 		So(imgStore, ShouldNotBeNil)
 		So(imgStore.InitRepo("test"), ShouldBeNil)
@@ -504,7 +513,8 @@ func TestNegativeCases(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true,
+			true, log, metrics, lint.NewLinter(nil, log))
 
 		So(imgStore, ShouldNotBeNil)
 		So(imgStore.InitRepo("test"), ShouldBeNil)
@@ -545,7 +555,8 @@ func TestNegativeCases(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+			true, true, log, metrics, lint.NewLinter(nil, log))
 
 		So(imgStore, ShouldNotBeNil)
 		So(imgStore.InitRepo("test"), ShouldBeNil)
@@ -689,7 +700,8 @@ func TestInjectWriteFile(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+			true, true, log, metrics, lint.NewLinter(nil, log))
 
 		Convey("Failure path1", func() {
 			injected := test.InjectFailure(0)
@@ -719,7 +731,8 @@ func TestInjectWriteFile(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, false, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+			true, false, log, metrics, lint.NewLinter(nil, log))
 
 		Convey("Failure path not reached", func() {
 			err := imgStore.InitRepo("repo1")
@@ -736,7 +749,8 @@ func TestGarbageCollect(t *testing.T) {
 		metrics := monitoring.NewMetricsServer(false, log)
 
 		Convey("Garbage collect with default/long delay", func() {
-			imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+			imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+				true, true, log, metrics, lint.NewLinter(nil, log))
 			repoName := "gc-long"
 
 			upload, err := imgStore.NewBlobUpload(repoName)
@@ -803,7 +817,7 @@ func TestGarbageCollect(t *testing.T) {
 		})
 
 		Convey("Garbage collect with short delay", func() {
-			imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics)
+			imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics, lint.NewLinter(nil, log))
 			repoName := "gc-short"
 
 			// upload orphan blob
@@ -899,7 +913,7 @@ func TestGarbageCollect(t *testing.T) {
 
 		Convey("Garbage collect with dedupe", func() {
 			// garbage-collect is repo-local and dedupe is global and they can interact in strange ways
-			imgStore := storage.NewImageStore(dir, true, 5*time.Second, true, true, log, metrics)
+			imgStore := storage.NewImageStore(dir, true, 5*time.Second, true, true, log, metrics, lint.NewLinter(nil, log))
 
 			// first upload an image to the first repo and wait for GC timeout
 
@@ -1100,7 +1114,7 @@ func TestGarbageCollectForImageStore(t *testing.T) {
 
 			log := log.NewLogger("debug", logFile.Name())
 			metrics := monitoring.NewMetricsServer(false, log)
-			imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics)
+			imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics, lint.NewLinter(nil, log))
 			repoName := "gc-all-repos-short"
 
 			err := test.CopyFiles("../../test/data/zot-test", path.Join(dir, repoName))
@@ -1132,7 +1146,7 @@ func TestGarbageCollectForImageStore(t *testing.T) {
 
 			log := log.NewLogger("debug", logFile.Name())
 			metrics := monitoring.NewMetricsServer(false, log)
-			imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics)
+			imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics, lint.NewLinter(nil, log))
 			repoName := "gc-all-repos-short"
 
 			err := test.CopyFiles("../../test/data/zot-test", path.Join(dir, repoName))
@@ -1177,7 +1191,8 @@ func TestInitRepo(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+			true, true, log, metrics, lint.NewLinter(nil, log))
 
 		err := os.Mkdir(path.Join(dir, "test-dir"), 0o000)
 		So(err, ShouldBeNil)
@@ -1193,7 +1208,8 @@ func TestValidateRepo(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+			true, true, log, metrics, lint.NewLinter(nil, log))
 
 		err := os.Mkdir(path.Join(dir, "test-dir"), 0o000)
 		So(err, ShouldBeNil)
@@ -1209,7 +1225,9 @@ func TestGetRepositoriesError(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+			true, true, log, metrics, lint.NewLinter(nil, log),
+		)
 
 		// create valid directory with permissions
 		err := os.Mkdir(path.Join(dir, "test-dir"), 0o755)
@@ -1229,7 +1247,8 @@ func TestPutBlobChunkStreamed(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
+			true, true, log, metrics, lint.NewLinter(nil, log))
 
 		uuid, err := imgStore.NewBlobUpload("test")
 		So(err, ShouldBeNil)

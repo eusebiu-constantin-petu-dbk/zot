@@ -19,6 +19,7 @@ import (
 	"zotregistry.io/zot/pkg/api/config"
 	"zotregistry.io/zot/pkg/api/constants"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	digestinfo "zotregistry.io/zot/pkg/extensions/search/digest"
 	"zotregistry.io/zot/pkg/log"
@@ -97,10 +98,15 @@ func testSetup() error {
 		return err
 	}
 
+	conf := config.New()
+	conf.Extensions = &extconf.ExtensionConfig{}
+	conf.Extensions.Lint = &lint.Config{}
+
 	log := log.NewLogger("debug", "")
 	metrics := monitoring.NewMetricsServer(false, log)
 	storeController := storage.StoreController{
-		DefaultStore: storage.NewImageStore(rootDir, false, storage.DefaultGCDelay, false, false, log, metrics),
+		DefaultStore: storage.NewImageStore(rootDir, false, storage.DefaultGCDelay,
+			false, false, log, metrics, lint.NewLinter(conf.Extensions.Lint, log)),
 	}
 
 	digestInfo = digestinfo.NewDigestInfo(storeController, log)

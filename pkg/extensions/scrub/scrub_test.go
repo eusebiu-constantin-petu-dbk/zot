@@ -18,6 +18,7 @@ import (
 	"zotregistry.io/zot/pkg/api"
 	"zotregistry.io/zot/pkg/api/config"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/extensions/scrub"
 	"zotregistry.io/zot/pkg/log"
@@ -224,10 +225,15 @@ func TestRunScrubRepo(t *testing.T) {
 
 		defer os.Remove(logFile.Name()) // clean up
 
+		conf := config.New()
+		conf.Extensions = &extconf.ExtensionConfig{}
+		conf.Extensions.Lint = &lint.Config{}
+
 		dir := t.TempDir()
 		log := log.NewLogger("debug", logFile.Name())
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, 1*time.Second, true,
+			true, log, metrics, lint.NewLinter(conf.Extensions.Lint, log))
 
 		err = test.CopyFiles("../../../test/data/zot-test", path.Join(dir, repoName))
 		if err != nil {
@@ -247,10 +253,16 @@ func TestRunScrubRepo(t *testing.T) {
 
 		defer os.Remove(logFile.Name()) // clean up
 
+		conf := config.New()
+
+		conf.Extensions = &extconf.ExtensionConfig{}
+		conf.Extensions.Lint = &lint.Config{}
+
 		dir := t.TempDir()
 		log := log.NewLogger("debug", logFile.Name())
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, 1*time.Second, true,
+			true, log, metrics, lint.NewLinter(conf.Extensions.Lint, log))
 
 		err = test.CopyFiles("../../../test/data/zot-test", path.Join(dir, repoName))
 		if err != nil {
@@ -277,10 +289,15 @@ func TestRunScrubRepo(t *testing.T) {
 
 		defer os.Remove(logFile.Name()) // clean up
 
+		conf := config.New()
+		conf.Extensions = &extconf.ExtensionConfig{}
+		conf.Extensions.Lint = &lint.Config{}
+
 		dir := t.TempDir()
 		log := log.NewLogger("debug", logFile.Name())
 		metrics := monitoring.NewMetricsServer(false, log)
-		imgStore := storage.NewImageStore(dir, true, 1*time.Second, true, true, log, metrics)
+		imgStore := storage.NewImageStore(dir, true, 1*time.Second,
+			true, true, log, metrics, lint.NewLinter(conf.Extensions.Lint, log))
 
 		err = test.CopyFiles("../../../test/data/zot-test", path.Join(dir, repoName))
 		if err != nil {

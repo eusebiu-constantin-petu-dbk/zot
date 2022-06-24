@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/containers/image/v5/signature"
 	"github.com/containers/image/v5/types"
 	"gopkg.in/resty.v1"
+	zerr "zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
 )
@@ -274,7 +276,8 @@ func syncOneImage(imageChannel chan error, cfg Config, storeController storage.S
 	imageChannel <- nil
 }
 
-func syncRun(regCfg RegistryConfig, localRepo, remoteRepo, tag string, utils syncContextUtils,
+func syncRun(regCfg RegistryConfig,
+	localRepo, remoteRepo, tag string, utils syncContextUtils,
 	log log.Logger,
 ) (bool, error) {
 	upstreamImageRef, err := getImageRef(utils.upstreamAddr, remoteRepo, tag)
@@ -347,6 +350,13 @@ func syncRun(regCfg RegistryConfig, localRepo, remoteRepo, tag string, utils syn
 	}
 
 	err = pushSyncedLocalImage(localRepo, tag, localCachePath, utils.imageStore, log)
+	if errors.Is(err, zerr.ErrImageLintAnnotations) {
+		log.Error().Err(err).Msgf("missing mandatory annotations - will skip image upload %s",
+			upstreamImageRef.DockerReference())
+
+		return false, err
+	}
+
 	if err != nil {
 		log.Error().Str("errorType", TypeOf(err)).
 			Err(err).Msgf("error while pushing synced cached image %s",

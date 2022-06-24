@@ -25,6 +25,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"gopkg.in/resty.v1"
 	zerr "zotregistry.io/zot/errors"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
@@ -56,7 +57,9 @@ func skipIt(t *testing.T) {
 func createMockStorage(rootDir string, cacheDir string, dedupe bool, store driver.StorageDriver) storage.ImageStore {
 	log := log.Logger{Logger: zerolog.New(os.Stdout)}
 	metrics := monitoring.NewMetricsServer(false, log)
-	il := s3.NewImageStore(rootDir, cacheDir, false, storage.DefaultGCDelay, dedupe, false, log, metrics, store)
+	il := s3.NewImageStore(rootDir, cacheDir, false, storage.DefaultGCDelay,
+		dedupe, false, log, metrics, lint.NewLinter(nil, log), store,
+	)
 
 	return il
 }
@@ -95,7 +98,8 @@ func createObjectsStore(rootDir string, cacheDir string, dedupe bool) (
 
 	log := log.Logger{Logger: zerolog.New(os.Stdout)}
 	metrics := monitoring.NewMetricsServer(false, log)
-	il := s3.NewImageStore(rootDir, cacheDir, false, storage.DefaultGCDelay, dedupe, false, log, metrics, store)
+	il := s3.NewImageStore(rootDir, cacheDir, false, storage.DefaultGCDelay,
+		dedupe, false, log, metrics, lint.NewLinter(nil, log), store)
 
 	return store, il, err
 }
@@ -894,7 +898,8 @@ func TestS3Dedupe(t *testing.T) {
 		manifestBuf, err := json.Marshal(manifest)
 		So(err, ShouldBeNil)
 		digest = godigest.FromBytes(manifestBuf)
-		_, err = imgStore.PutImageManifest("dedupe1", digest.String(), ispec.MediaTypeImageManifest, manifestBuf)
+		_, err = imgStore.PutImageManifest("dedupe1", digest.String(),
+			ispec.MediaTypeImageManifest, manifestBuf)
 		So(err, ShouldBeNil)
 
 		_, _, _, err = imgStore.GetImageManifest("dedupe1", digest.String())
@@ -956,7 +961,8 @@ func TestS3Dedupe(t *testing.T) {
 		manifestBuf, err = json.Marshal(manifest)
 		So(err, ShouldBeNil)
 		digest = godigest.FromBytes(manifestBuf)
-		_, err = imgStore.PutImageManifest("dedupe2", "1.0", ispec.MediaTypeImageManifest, manifestBuf)
+		_, err = imgStore.PutImageManifest("dedupe2", "1.0", ispec.MediaTypeImageManifest,
+			manifestBuf)
 		So(err, ShouldBeNil)
 
 		_, _, _, err = imgStore.GetImageManifest("dedupe2", digest.String())
@@ -1078,7 +1084,8 @@ func TestS3Dedupe(t *testing.T) {
 			manifestBuf, err = json.Marshal(manifest)
 			So(err, ShouldBeNil)
 			digest = godigest.FromBytes(manifestBuf)
-			_, err = imgStore.PutImageManifest("dedupe3", "1.0", ispec.MediaTypeImageManifest, manifestBuf)
+			_, err = imgStore.PutImageManifest("dedupe3", "1.0", ispec.MediaTypeImageManifest,
+				manifestBuf)
 			So(err, ShouldBeNil)
 
 			_, _, _, err = imgStore.GetImageManifest("dedupe3", digest.String())

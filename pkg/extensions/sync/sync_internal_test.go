@@ -22,6 +22,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"gopkg.in/resty.v1"
 	"zotregistry.io/zot/errors"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
@@ -61,7 +62,9 @@ func TestInjectSyncUtils(t *testing.T) {
 
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
-		imageStore := storage.NewImageStore(t.TempDir(), false, storage.DefaultGCDelay, false, false, log, metrics)
+		imageStore := storage.NewImageStore(t.TempDir(), false, storage.DefaultGCDelay,
+			false, false, log, metrics, lint.NewLinter(nil, log),
+		)
 		injected = test.InjectFailure(0)
 
 		_, err = getLocalCachePath(imageStore, testImage)
@@ -147,7 +150,8 @@ func TestSyncInternal(t *testing.T) {
 		}
 		ctx := context.Background()
 
-		So(Run(ctx, cfg, storage.StoreController{}, new(goSync.WaitGroup), log.NewLogger("debug", "")), ShouldNotBeNil)
+		So(Run(ctx, cfg, storage.StoreController{},
+			new(goSync.WaitGroup), log.NewLogger("debug", "")), ShouldNotBeNil)
 
 		_, err = getFileCredentials("/invalid/path/to/file")
 		So(err, ShouldNotBeNil)
@@ -157,7 +161,8 @@ func TestSyncInternal(t *testing.T) {
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
 
-		imageStore := storage.NewImageStore(t.TempDir(), false, storage.DefaultGCDelay, false, false, log, metrics)
+		imageStore := storage.NewImageStore(t.TempDir(), false, storage.DefaultGCDelay,
+			false, false, log, metrics, lint.NewLinter(nil, log))
 
 		err := os.Chmod(imageStore.RootDir(), 0o000)
 		So(err, ShouldBeNil)
@@ -340,7 +345,8 @@ func TestSyncInternal(t *testing.T) {
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
 
-		imageStore := storage.NewImageStore(storageDir, false, storage.DefaultGCDelay, false, false, log, metrics)
+		imageStore := storage.NewImageStore(storageDir, false, storage.DefaultGCDelay,
+			false, false, log, metrics, lint.NewLinter(nil, log))
 
 		refs := ReferenceList{[]artifactspec.Descriptor{
 			{
@@ -422,7 +428,8 @@ func TestSyncInternal(t *testing.T) {
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
 
-		imageStore := storage.NewImageStore(storageDir, false, storage.DefaultGCDelay, false, false, log, metrics)
+		imageStore := storage.NewImageStore(storageDir, false, storage.DefaultGCDelay,
+			false, false, log, metrics, lint.NewLinter(nil, log))
 
 		storeController := storage.StoreController{}
 		storeController.DefaultStore = imageStore
@@ -443,7 +450,8 @@ func TestSyncInternal(t *testing.T) {
 			panic(err)
 		}
 
-		testImageStore := storage.NewImageStore(testRootDir, false, storage.DefaultGCDelay, false, false, log, metrics)
+		testImageStore := storage.NewImageStore(testRootDir, false,
+			storage.DefaultGCDelay, false, false, log, metrics, lint.NewLinter(nil, log))
 		manifestContent, _, _, err := testImageStore.GetImageManifest(testImage, testImageTag)
 		So(err, ShouldBeNil)
 

@@ -3,6 +3,7 @@ package config
 import (
 	"time"
 
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/sync"
 )
 
@@ -11,6 +12,7 @@ type ExtensionConfig struct {
 	Sync    *sync.Config
 	Metrics *MetricsConfig
 	Scrub   *ScrubConfig
+	Lint    *lint.Config
 }
 
 type SearchConfig struct {

@@ -1,5 +1,5 @@
-//go:build sync && scrub && metrics && search && ui_base
-// +build sync,scrub,metrics,search,ui_base
+//go:build extended
+// +build extended
 
 package api_test
 
@@ -49,6 +49,7 @@ import (
 	"zotregistry.io/zot/pkg/api/config"
 	"zotregistry.io/zot/pkg/api/constants"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/storage"
 	"zotregistry.io/zot/pkg/test"
 )
@@ -5059,6 +5060,273 @@ func getAllManifests(imagePath string) []string {
 	}
 
 	return manifestList
+}
+
+func TestVerifyMandatoryAnnotations(t *testing.T) {
+	Convey("Mandatory annotations disabled", t, func() {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+
+		conf := config.New()
+		conf.HTTP.Port = port
+		enabled := false
+		conf.Extensions = &extconf.ExtensionConfig{}
+		conf.Extensions.Lint = &lint.Config{}
+
+		conf.Extensions.Lint.Enabled = &enabled
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+
+		err := test.CopyFiles("../../test/data", dir)
+		if err != nil {
+			panic(err)
+		}
+
+		ctlr.Config.Storage.RootDirectory = dir
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		resp, err := resty.R().SetBasicAuth(username, passphrase).
+			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+
+		manifestBlob := resp.Body()
+		var manifest ispec.Manifest
+		err = json.Unmarshal(manifestBlob, &manifest)
+		So(err, ShouldBeNil)
+
+		manifest.SchemaVersion = 2
+		content, err := json.Marshal(manifest)
+		So(err, ShouldBeNil)
+
+		resp, err = resty.R().SetHeader("Content-Type", "application/vnd.oci.image.manifest.v1+json").
+			SetBody(content).Put(baseURL + "/v2/zot-test/manifests/0.0.1")
+		So(err, ShouldBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+	})
+
+	Convey("Mandatory annotations enabled, but no list in config", t, func() {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+
+		conf := config.New()
+		conf.HTTP.Port = port
+		enabled := true
+		conf.Extensions = &extconf.ExtensionConfig{}
+		conf.Extensions.Lint = &lint.Config{}
+
+		conf.Extensions.Lint.Enabled = &enabled
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+
+		err := test.CopyFiles("../../test/data", dir)
+		if err != nil {
+			panic(err)
+		}
+
+		ctlr.Config.Storage.RootDirectory = dir
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		resp, err := resty.R().SetBasicAuth(username, passphrase).
+			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+
+		manifestBlob := resp.Body()
+		var manifest ispec.Manifest
+		err = json.Unmarshal(manifestBlob, &manifest)
+		So(err, ShouldBeNil)
+
+		manifest.SchemaVersion = 2
+		content, err := json.Marshal(manifest)
+		So(err, ShouldBeNil)
+
+		resp, err = resty.R().SetHeader("Content-Type", "application/vnd.oci.image.manifest.v1+json").
+			SetBody(content).Put(baseURL + "/v2/zot-test/manifests/0.0.1")
+		So(err, ShouldBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+	})
+
+	Convey("Mandatory annotations verification passing", t, func() {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+
+		conf := config.New()
+		conf.HTTP.Port = port
+		enabled := true
+		conf.Extensions = &extconf.ExtensionConfig{}
+		conf.Extensions.Lint = &lint.Config{}
+
+		conf.Extensions.Lint.Enabled = &enabled
+
+		conf.Extensions.Lint.MandatoryAnnotations = &lint.MandatoryAnnotationsConfig{}
+		conf.Extensions.Lint.MandatoryAnnotations.
+			AnnotationsList = []string{"annotation1", "annotation2", "annotation3"}
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+
+		err := test.CopyFiles("../../test/data", dir)
+		if err != nil {
+			panic(err)
+		}
+
+		ctlr.Config.Storage.RootDirectory = dir
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		resp, err := resty.R().SetBasicAuth(username, passphrase).
+			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+
+		manifestBlob := resp.Body()
+		var manifest ispec.Manifest
+		err = json.Unmarshal(manifestBlob, &manifest)
+		So(err, ShouldBeNil)
+
+		manifest.Annotations = make(map[string]string)
+
+		manifest.Annotations["annotation1"] = "testPass1"
+		manifest.Annotations["annotation2"] = "testPass2"
+		manifest.Annotations["annotation3"] = "testPass3"
+
+		manifest.SchemaVersion = 2
+		content, err := json.Marshal(manifest)
+		So(err, ShouldBeNil)
+
+		resp, err = resty.R().SetHeader("Content-Type", "application/vnd.oci.image.manifest.v1+json").
+			SetBody(content).Put(baseURL + "/v2/zot-test/manifests/0.0.1")
+		So(err, ShouldBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+	})
+
+	Convey("Mandatory annotations incomplete in manifest", t, func() {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+
+		conf := config.New()
+		conf.HTTP.Port = port
+		enabled := true
+		conf.Extensions = &extconf.ExtensionConfig{}
+		conf.Extensions.Lint = &lint.Config{}
+
+		conf.Extensions.Lint.Enabled = &enabled
+
+		conf.Extensions.Lint.MandatoryAnnotations = &lint.MandatoryAnnotationsConfig{}
+		conf.Extensions.Lint.MandatoryAnnotations.
+			AnnotationsList = []string{"annotation1", "annotation2", "annotation3"}
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+
+		err := test.CopyFiles("../../test/data", dir)
+		if err != nil {
+			panic(err)
+		}
+
+		ctlr.Config.Storage.RootDirectory = dir
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		resp, err := resty.R().SetBasicAuth(username, passphrase).
+			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+
+		manifestBlob := resp.Body()
+		var manifest ispec.Manifest
+		err = json.Unmarshal(manifestBlob, &manifest)
+		So(err, ShouldBeNil)
+
+		manifest.Annotations = make(map[string]string)
+
+		manifest.Annotations["annotation1"] = "testFail1"
+		manifest.Annotations["annotation3"] = "testFail3"
+
+		manifest.SchemaVersion = 2
+		content, err := json.Marshal(manifest)
+		So(err, ShouldBeNil)
+
+		resp, err = resty.R().SetHeader("Content-Type", "application/vnd.oci.image.manifest.v1+json").
+			SetBody(content).Put(baseURL + "/v2/zot-test/manifests/0.0.1")
+		So(err, ShouldBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusBadRequest)
+	})
+
+	Convey("Mandatory annotations verification passing - more annotations than the mandatory list", t, func() {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+
+		conf := config.New()
+		conf.HTTP.Port = port
+		enabled := true
+		conf.Extensions = &extconf.ExtensionConfig{}
+		conf.Extensions.Lint = &lint.Config{}
+
+		conf.Extensions.Lint.Enabled = &enabled
+
+		conf.Extensions.Lint.MandatoryAnnotations = &lint.MandatoryAnnotationsConfig{}
+		conf.Extensions.Lint.MandatoryAnnotations.
+			AnnotationsList = []string{"annotation1", "annotation2", "annotation3"}
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+
+		err := test.CopyFiles("../../test/data", dir)
+		if err != nil {
+			panic(err)
+		}
+
+		ctlr.Config.Storage.RootDirectory = dir
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		resp, err := resty.R().SetBasicAuth(username, passphrase).
+			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+
+		manifestBlob := resp.Body()
+		var manifest ispec.Manifest
+		err = json.Unmarshal(manifestBlob, &manifest)
+		So(err, ShouldBeNil)
+
+		manifest.Annotations = make(map[string]string)
+
+		manifest.Annotations["annotation1"] = "testPass1"
+		manifest.Annotations["annotation2"] = "testPass2"
+		manifest.Annotations["annotation3"] = "testPass3"
+		manifest.Annotations["annotation4"] = "testPass4"
+
+		manifest.SchemaVersion = 2
+		content, err := json.Marshal(manifest)
+		So(err, ShouldBeNil)
+
+		resp, err = resty.R().SetHeader("Content-Type", "application/vnd.oci.image.manifest.v1+json").
+			SetBody(content).Put(baseURL + "/v2/zot-test/manifests/0.0.1")
+		So(err, ShouldBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+	})
 }
 
 func startServer(c *api.Controller) {

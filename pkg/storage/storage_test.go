@@ -23,6 +23,7 @@ import (
 	"github.com/rs/zerolog"
 	. "github.com/smartystreets/goconvey/convey"
 	"gopkg.in/resty.v1"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
@@ -73,7 +74,9 @@ func createObjectsStore(rootDir string, cacheDir string) (driver.StorageDriver, 
 	log := log.Logger{Logger: zerolog.New(os.Stdout)}
 	metrics := monitoring.NewMetricsServer(false, log)
 
-	il := s3.NewImageStore(rootDir, cacheDir, false, storage.DefaultGCDelay, true, false, log, metrics, store)
+	il := s3.NewImageStore(rootDir, cacheDir, false, storage.DefaultGCDelay,
+		true, false, log, metrics, lint.NewLinter(nil, log), store,
+	)
 
 	return store, il, err
 }
@@ -117,7 +120,8 @@ func TestStorageAPIs(t *testing.T) {
 
 				log := log.Logger{Logger: zerolog.New(os.Stdout)}
 				metrics := monitoring.NewMetricsServer(false, log)
-				imgStore = storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+				imgStore = storage.NewImageStore(dir, true, storage.DefaultGCDelay, true,
+					true, log, metrics, lint.NewLinter(nil, log))
 			}
 
 			Convey("Repo layout", t, func(c C) {
@@ -446,10 +450,12 @@ func TestStorageAPIs(t *testing.T) {
 						})
 
 						Convey("Bad image manifest", func() {
-							_, err = imgStore.PutImageManifest("test", digest.String(), ispec.MediaTypeImageManifest, manifestBuf)
+							_, err = imgStore.PutImageManifest("test", digest.String(),
+								ispec.MediaTypeImageManifest, manifestBuf)
 							So(err, ShouldNotBeNil)
 
-							_, err = imgStore.PutImageManifest("test", digest.String(), ispec.MediaTypeImageManifest, []byte("bad json"))
+							_, err = imgStore.PutImageManifest("test", digest.String(),
+								ispec.MediaTypeImageManifest, []byte("bad json"))
 							So(err, ShouldNotBeNil)
 
 							_, _, _, err = imgStore.GetImageManifest("test", digest.String())
@@ -483,11 +489,13 @@ func TestStorageAPIs(t *testing.T) {
 							manifestBuf, err = json.Marshal(manifest)
 							So(err, ShouldBeNil)
 							digest := godigest.FromBytes(manifestBuf)
-							_, err = imgStore.PutImageManifest("test", digest.String(), ispec.MediaTypeImageManifest, manifestBuf)
+							_, err = imgStore.PutImageManifest("test", digest.String(),
+								ispec.MediaTypeImageManifest, manifestBuf)
 							So(err, ShouldBeNil)
 
 							// same manifest for coverage
-							_, err = imgStore.PutImageManifest("test", digest.String(), ispec.MediaTypeImageManifest, manifestBuf)
+							_, err = imgStore.PutImageManifest("test", digest.String(),
+								ispec.MediaTypeImageManifest, manifestBuf)
 							So(err, ShouldBeNil)
 
 							_, _, _, err = imgStore.GetImageManifest("test", digest.String())
@@ -700,11 +708,14 @@ func TestStorageHandler(t *testing.T) {
 				metrics := monitoring.NewMetricsServer(false, log)
 
 				// Create ImageStore
-				firstStore = storage.NewImageStore(firstRootDir, false, storage.DefaultGCDelay, false, false, log, metrics)
+				firstStore = storage.NewImageStore(firstRootDir, false, storage.DefaultGCDelay,
+					false, false, log, metrics, lint.NewLinter(nil, log))
 
-				secondStore = storage.NewImageStore(secondRootDir, false, storage.DefaultGCDelay, false, false, log, metrics)
+				secondStore = storage.NewImageStore(secondRootDir, false,
+					storage.DefaultGCDelay, false, false, log, metrics, lint.NewLinter(nil, log))
 
-				thirdStore = storage.NewImageStore(thirdRootDir, false, storage.DefaultGCDelay, false, false, log, metrics)
+				thirdStore = storage.NewImageStore(thirdRootDir, false, storage.DefaultGCDelay,
+					false, false, log, metrics, lint.NewLinter(nil, log))
 			}
 
 			Convey("Test storage handler", t, func() {
