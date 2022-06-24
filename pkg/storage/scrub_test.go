@@ -117,10 +117,14 @@ func TestCheckAllBlobsIntegrity(t *testing.T) {
 		}
 
 		mnfst.SchemaVersion = 2
-		mb, err := json.Marshal(mnfst)
+		mbytes, err := json.Marshal(mnfst)
 		So(err, ShouldBeNil)
 
-		manifest, err = imgStore.PutImageManifest(repoName, tag, ispec.MediaTypeImageManifest, mb)
+		var annotationsList []string
+		var lintEnabled bool
+
+		manifest, err = imgStore.PutImageManifest(repoName, tag, ispec.MediaTypeImageManifest,
+			mbytes, annotationsList, lintEnabled)
 		So(err, ShouldBeNil)
 
 		Convey("Blobs integrity not affected", func() {

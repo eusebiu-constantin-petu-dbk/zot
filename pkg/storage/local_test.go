@@ -94,7 +94,7 @@ func TestStorageFSAPIs(t *testing.T) {
 				panic(err)
 			}
 
-			_, err = imgStore.PutImageManifest(repoName, "1.0", ispec.MediaTypeImageManifest, manifestBuf)
+			_, err = imgStore.PutImageManifest(repoName, "1.0", ispec.MediaTypeImageManifest, manifestBuf, []string{}, false)
 			So(err, ShouldNotBeNil)
 
 			err = os.Chmod(path.Join(imgStore.RootDir(), repoName, "index.json"), 0o755)
@@ -102,7 +102,7 @@ func TestStorageFSAPIs(t *testing.T) {
 				panic(err)
 			}
 
-			_, err = imgStore.PutImageManifest(repoName, "1.0", ispec.MediaTypeImageManifest, manifestBuf)
+			_, err = imgStore.PutImageManifest(repoName, "1.0", ispec.MediaTypeImageManifest, manifestBuf, []string{}, false)
 			So(err, ShouldBeNil)
 
 			manifestPath := path.Join(imgStore.RootDir(), repoName, "blobs", digest.Algorithm().String(), digest.Encoded())
@@ -128,7 +128,7 @@ func TestStorageFSAPIs(t *testing.T) {
 				panic(err)
 			}
 
-			_, err = imgStore.PutImageManifest(repoName, "2.0", ispec.MediaTypeImageManifest, manifestBuf)
+			_, err = imgStore.PutImageManifest(repoName, "2.0", ispec.MediaTypeImageManifest, manifestBuf, []string{}, false)
 			So(err, ShouldNotBeNil)
 			err = os.Chmod(path.Join(imgStore.RootDir(), repoName), 0o755)
 			if err != nil {
@@ -222,7 +222,8 @@ func TestDedupeLinks(t *testing.T) {
 		manifestBuf, err := json.Marshal(manifest)
 		So(err, ShouldBeNil)
 		digest = godigest.FromBytes(manifestBuf)
-		_, err = imgStore.PutImageManifest("dedupe1", digest.String(), ispec.MediaTypeImageManifest, manifestBuf)
+		_, err = imgStore.PutImageManifest("dedupe1", digest.String(),
+			ispec.MediaTypeImageManifest, manifestBuf, []string{}, false)
 		So(err, ShouldBeNil)
 
 		_, _, _, err = imgStore.GetImageManifest("dedupe1", digest.String())
@@ -279,7 +280,7 @@ func TestDedupeLinks(t *testing.T) {
 		manifestBuf, err = json.Marshal(manifest)
 		So(err, ShouldBeNil)
 		digest = godigest.FromBytes(manifestBuf)
-		_, err = imgStore.PutImageManifest("dedupe2", "1.0", ispec.MediaTypeImageManifest, manifestBuf)
+		_, err = imgStore.PutImageManifest("dedupe2", "1.0", ispec.MediaTypeImageManifest, manifestBuf, []string{}, false)
 		So(err, ShouldBeNil)
 
 		_, _, _, err = imgStore.GetImageManifest("dedupe2", digest.String())
@@ -787,7 +788,7 @@ func TestGarbageCollect(t *testing.T) {
 			So(err, ShouldBeNil)
 			digest := godigest.FromBytes(manifestBuf)
 
-			_, err = imgStore.PutImageManifest(repoName, tag, ispec.MediaTypeImageManifest, manifestBuf)
+			_, err = imgStore.PutImageManifest(repoName, tag, ispec.MediaTypeImageManifest, manifestBuf, []string{}, false)
 			So(err, ShouldBeNil)
 
 			hasBlob, _, err = imgStore.CheckBlob(repoName, bdigest.String())
@@ -875,7 +876,7 @@ func TestGarbageCollect(t *testing.T) {
 			So(err, ShouldBeNil)
 			digest := godigest.FromBytes(manifestBuf)
 
-			_, err = imgStore.PutImageManifest(repoName, tag, ispec.MediaTypeImageManifest, manifestBuf)
+			_, err = imgStore.PutImageManifest(repoName, tag, ispec.MediaTypeImageManifest, manifestBuf, []string{}, false)
 			So(err, ShouldBeNil)
 
 			hasBlob, _, err = imgStore.CheckBlob(repoName, odigest.String())
@@ -954,7 +955,7 @@ func TestGarbageCollect(t *testing.T) {
 			manifestBuf, err := json.Marshal(manifest)
 			So(err, ShouldBeNil)
 
-			_, err = imgStore.PutImageManifest(repo1Name, tag, ispec.MediaTypeImageManifest, manifestBuf)
+			_, err = imgStore.PutImageManifest(repo1Name, tag, ispec.MediaTypeImageManifest, manifestBuf, []string{}, false)
 			So(err, ShouldBeNil)
 
 			hasBlob, _, err = imgStore.CheckBlob(repo1Name, tdigest.String())
@@ -1017,7 +1018,7 @@ func TestGarbageCollect(t *testing.T) {
 			manifestBuf, err = json.Marshal(manifest)
 			So(err, ShouldBeNil)
 
-			_, err = imgStore.PutImageManifest(repo2Name, tag, ispec.MediaTypeImageManifest, manifestBuf)
+			_, err = imgStore.PutImageManifest(repo2Name, tag, ispec.MediaTypeImageManifest, manifestBuf, []string{}, false)
 			So(err, ShouldBeNil)
 
 			hasBlob, _, err = imgStore.CheckBlob(repo2Name, bdigest.String())
@@ -1074,7 +1075,7 @@ func TestGarbageCollect(t *testing.T) {
 			So(err, ShouldBeNil)
 			digest := godigest.FromBytes(manifestBuf)
 
-			_, err = imgStore.PutImageManifest(repo2Name, tag, ispec.MediaTypeImageManifest, manifestBuf)
+			_, err = imgStore.PutImageManifest(repo2Name, tag, ispec.MediaTypeImageManifest, manifestBuf, []string{}, false)
 			So(err, ShouldBeNil)
 
 			// original blob should exist

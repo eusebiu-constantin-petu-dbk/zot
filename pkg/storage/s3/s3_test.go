@@ -515,7 +515,7 @@ func TestNegativeCasesObjectsStorage(t *testing.T) {
 		err = imgStore.DeleteImageManifest(testImage, "1.0")
 		So(err, ShouldNotBeNil)
 
-		_, err = imgStore.PutImageManifest(testImage, "1.0", "application/json", []byte{})
+		_, err = imgStore.PutImageManifest(testImage, "1.0", "application/json", []byte{}, []string{}, false)
 		So(err, ShouldNotBeNil)
 
 		_, err = imgStore.PutBlobChunkStreamed(testImage, upload, bytes.NewBuffer([]byte(testImage)))
@@ -894,7 +894,10 @@ func TestS3Dedupe(t *testing.T) {
 		manifestBuf, err := json.Marshal(manifest)
 		So(err, ShouldBeNil)
 		digest = godigest.FromBytes(manifestBuf)
-		_, err = imgStore.PutImageManifest("dedupe1", digest.String(), ispec.MediaTypeImageManifest, manifestBuf)
+		var annotationsList []string
+		var lintEnabled bool
+		_, err = imgStore.PutImageManifest("dedupe1", digest.String(),
+			ispec.MediaTypeImageManifest, manifestBuf, annotationsList, lintEnabled)
 		So(err, ShouldBeNil)
 
 		_, _, _, err = imgStore.GetImageManifest("dedupe1", digest.String())
@@ -956,7 +959,8 @@ func TestS3Dedupe(t *testing.T) {
 		manifestBuf, err = json.Marshal(manifest)
 		So(err, ShouldBeNil)
 		digest = godigest.FromBytes(manifestBuf)
-		_, err = imgStore.PutImageManifest("dedupe2", "1.0", ispec.MediaTypeImageManifest, manifestBuf)
+		_, err = imgStore.PutImageManifest("dedupe2", "1.0", ispec.MediaTypeImageManifest,
+			manifestBuf, annotationsList, lintEnabled)
 		So(err, ShouldBeNil)
 
 		_, _, _, err = imgStore.GetImageManifest("dedupe2", digest.String())
@@ -1078,7 +1082,8 @@ func TestS3Dedupe(t *testing.T) {
 			manifestBuf, err = json.Marshal(manifest)
 			So(err, ShouldBeNil)
 			digest = godigest.FromBytes(manifestBuf)
-			_, err = imgStore.PutImageManifest("dedupe3", "1.0", ispec.MediaTypeImageManifest, manifestBuf)
+			_, err = imgStore.PutImageManifest("dedupe3", "1.0", ispec.MediaTypeImageManifest,
+				manifestBuf, annotationsList, lintEnabled)
 			So(err, ShouldBeNil)
 
 			_, _, _, err = imgStore.GetImageManifest("dedupe3", digest.String())

@@ -25,7 +25,8 @@ type ImageStore interface {
 	GetRepositories() ([]string, error)
 	GetImageTags(repo string) ([]string, error)
 	GetImageManifest(repo, reference string) ([]byte, string, string, error)
-	PutImageManifest(repo, reference, mediaType string, body []byte) (string, error)
+	PutImageManifest(repo, reference, mediaType string, body []byte,
+		mandatoryAnnotations []string, lintEnabled bool) (string, error)
 	DeleteImageManifest(repo, reference string) error
 	BlobUploadPath(repo, uuid string) string
 	NewBlobUpload(repo string) (string, error)

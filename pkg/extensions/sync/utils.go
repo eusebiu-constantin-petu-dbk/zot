@@ -265,7 +265,7 @@ func getHTTPClient(regCfg *RegistryConfig, upstreamURL string, credentials Crede
 }
 
 func pushSyncedLocalImage(localRepo, tag, localCachePath string,
-	imageStore storage.ImageStore, log log.Logger,
+	imageStore storage.ImageStore, annotationsList []string, lintEnabled bool, log log.Logger,
 ) error {
 	log.Info().Msgf("pushing synced local image %s/%s:%s to local registry", localCachePath, localRepo, tag)
 
@@ -331,7 +331,8 @@ func pushSyncedLocalImage(localRepo, tag, localCachePath string,
 		}
 	}
 
-	_, err = imageStore.PutImageManifest(localRepo, tag, ispec.MediaTypeImageManifest, manifestContent)
+	_, err = imageStore.PutImageManifest(localRepo, tag,
+		ispec.MediaTypeImageManifest, manifestContent, annotationsList, lintEnabled)
 	if err != nil {
 		log.Error().Str("errorType", TypeOf(err)).
 			Err(err).Msg("couldn't upload manifest")

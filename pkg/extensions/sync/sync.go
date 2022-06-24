@@ -296,7 +296,8 @@ func getUpstreamContext(regCfg *RegistryConfig, credentials Credentials) *types.
 }
 
 // nolint:gocyclo  // offloading some of the functionalities from here would make the code harder to follow
-func syncRegistry(ctx context.Context, regCfg RegistryConfig, upstreamURL string,
+func syncRegistry(ctx context.Context, regCfg RegistryConfig,
+	annotationsList []string, lintEnabled bool, upstreamURL string,
 	storeController storage.StoreController, localCtx *types.SystemContext,
 	policyCtx *signature.PolicyContext, credentials Credentials,
 	retryOptions *retry.RetryOptions, log log.Logger,
@@ -508,7 +509,14 @@ func syncRegistry(ctx context.Context, regCfg RegistryConfig, upstreamURL string
 				return err
 			}
 			// push from cache to repo
-			err = pushSyncedLocalImage(localRepo, tag, localCachePath, imageStore, log)
+			err = pushSyncedLocalImage(localRepo, tag, localCachePath, imageStore, annotationsList, lintEnabled, log)
+
+			if errors.Is(err, zerr.ErrMissingAnnotations) {
+				log.Error().Err(err).Msgf("missing mandatory annotations - will skip image upload %s",
+					upstreamImageRef.DockerReference())
+
+				continue
+			}
 
 			if err != nil {
 				log.Error().Str("errorType", TypeOf(err)).
@@ -573,7 +581,8 @@ func getLocalContexts(log log.Logger) (*types.SystemContext, *signature.PolicyCo
 	return localCtx, policyContext, nil
 }
 
-func Run(ctx context.Context, cfg Config, storeController storage.StoreController,
+func Run(ctx context.Context, cfg Config, annotationsList []string, lintEnabled bool,
+	storeController storage.StoreController,
 	wtgrp *goSync.WaitGroup, logger log.Logger,
 ) error {
 	var credentialsFile CredentialsFile
@@ -634,7 +643,8 @@ func Run(ctx context.Context, cfg Config, storeController storage.StoreControlle
 				for _, upstreamURL := range regCfg.URLs {
 					upstreamAddr := StripRegistryTransport(upstreamURL)
 					// first try syncing main registry
-					if err := syncRegistry(ctx, regCfg, upstreamURL, storeController, localCtx, policyCtx,
+					if err := syncRegistry(ctx, regCfg, annotationsList,
+						lintEnabled, upstreamURL, storeController, localCtx, policyCtx,
 						credentialsFile[upstreamAddr], retryOptions, logger); err != nil {
 						logger.Error().Str("errortype", TypeOf(err)).
 							Err(err).Str("registry", upstreamURL).

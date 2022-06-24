@@ -395,12 +395,12 @@ func (is *ObjectStorage) GetImageManifest(repo, reference string) ([]byte, strin
 
 // PutImageManifest adds an image manifest to the repository.
 func (is *ObjectStorage) PutImageManifest(repo, reference, mediaType string,
-	body []byte,
+	body []byte, mandatoryAnnotations []string, lintEnabled bool,
 ) (string, error) {
 	if err := is.InitRepo(repo); err != nil {
 		is.log.Debug().Err(err).Msg("init repo")
 
-		return "", err
+		return "", zerr.ErrMissingAnnotations
 	}
 
 	if mediaType != ispec.MediaTypeImageManifest {

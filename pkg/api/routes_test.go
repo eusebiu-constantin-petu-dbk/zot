@@ -29,14 +29,15 @@ import (
 var ErrUnexpectedError = errors.New("error: unexpected error")
 
 type MockedImageStore struct {
-	dirExistsFn            func(d string) bool
-	rootDirFn              func() string
-	initRepoFn             func(name string) error
-	validateRepoFn         func(name string) (bool, error)
-	getRepositoriesFn      func() ([]string, error)
-	getImageTagsFn         func(repo string) ([]string, error)
-	getImageManifestFn     func(repo string, reference string) ([]byte, string, string, error)
-	putImageManifestFn     func(repo string, reference string, mediaType string, body []byte) (string, error)
+	dirExistsFn        func(d string) bool
+	rootDirFn          func() string
+	initRepoFn         func(name string) error
+	validateRepoFn     func(name string) (bool, error)
+	getRepositoriesFn  func() ([]string, error)
+	getImageTagsFn     func(repo string) ([]string, error)
+	getImageManifestFn func(repo string, reference string) ([]byte, string, string, error)
+	putImageManifestFn func(repo string, reference string, mediaType string,
+		body []byte, mandatoryAnnotations []string, lintEnabled bool) (string, error)
 	deleteImageManifestFn  func(repo string, reference string) error
 	blobUploadPathFn       func(repo string, uuid string) string
 	newBlobUploadFn        func(repo string) (string, error)
@@ -124,9 +125,11 @@ func (is *MockedImageStore) PutImageManifest(
 	reference string,
 	mediaType string,
 	body []byte,
+	mandatoryAnnotations []string,
+	lintEnabled bool,
 ) (string, error) {
 	if is != nil && is.putImageManifestFn != nil {
-		return is.putImageManifestFn(repo, reference, mediaType, body)
+		return is.putImageManifestFn(repo, reference, mediaType, body, mandatoryAnnotations, lintEnabled)
 	}
 
 	return "", nil
@@ -381,7 +384,9 @@ func TestRoutes(t *testing.T) {
 					"reference": "reference",
 				},
 				&MockedImageStore{
-					putImageManifestFn: func(repo, reference, mediaType string, body []byte) (string, error) {
+					putImageManifestFn: func(repo, reference, mediaType string,
+						body []byte, mandatoryAnnotations []string, lintEnabled bool,
+					) (string, error) {
 						return "", zerr.ErrRepoNotFound
 					},
 				})
@@ -394,7 +399,9 @@ func TestRoutes(t *testing.T) {
 				},
 
 				&MockedImageStore{
-					putImageManifestFn: func(repo, reference, mediaType string, body []byte) (string, error) {
+					putImageManifestFn: func(repo, reference, mediaType string,
+						body []byte, madatoryAnnotations []string, lintEnabled bool,
+					) (string, error) {
 						return "", zerr.ErrManifestNotFound
 					},
 				})
@@ -406,7 +413,9 @@ func TestRoutes(t *testing.T) {
 					"reference": "reference",
 				},
 				&MockedImageStore{
-					putImageManifestFn: func(repo, reference, mediaType string, body []byte) (string, error) {
+					putImageManifestFn: func(repo, reference, mediaType string, body []byte,
+						madatoryAnnotations []string, lintEnabled bool,
+					) (string, error) {
 						return "", zerr.ErrBadManifest
 					},
 				})
@@ -418,7 +427,9 @@ func TestRoutes(t *testing.T) {
 					"reference": "reference",
 				},
 				&MockedImageStore{
-					putImageManifestFn: func(repo, reference, mediaType string, body []byte) (string, error) {
+					putImageManifestFn: func(repo, reference, mediaType string,
+						body []byte, madatoryAnnotations []string, lintEnabled bool,
+					) (string, error) {
 						return "", zerr.ErrBlobNotFound
 					},
 				})
@@ -431,7 +442,9 @@ func TestRoutes(t *testing.T) {
 					"reference": "reference",
 				},
 				&MockedImageStore{
-					putImageManifestFn: func(repo, reference, mediaType string, body []byte) (string, error) {
+					putImageManifestFn: func(repo, reference, mediaType string,
+						body []byte, madatoryAnnotations []string, lintEnabled bool,
+					) (string, error) {
 						return "", zerr.ErrRepoBadVersion
 					},
 				})

@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/containers/image/v5/signature"
 	"github.com/containers/image/v5/types"
 	"gopkg.in/resty.v1"
+	zerr "zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
 )
@@ -55,7 +57,7 @@ func (di *demandedImages) delete(key string) {
 	di.syncedMap.Delete(key)
 }
 
-func OneImage(cfg Config, storeController storage.StoreController,
+func OneImage(cfg Config, annotationsList []string, lintEnabled bool, storeController storage.StoreController,
 	repo, tag string, isArtifact bool, log log.Logger,
 ) error {
 	// guard against multiple parallel requests
@@ -78,7 +80,7 @@ func OneImage(cfg Config, storeController storage.StoreController,
 	defer demandedImgs.delete(demandedImage)
 	defer close(imageChannel)
 
-	go syncOneImage(imageChannel, cfg, storeController, repo, tag, isArtifact, log)
+	go syncOneImage(imageChannel, cfg, annotationsList, lintEnabled, storeController, repo, tag, isArtifact, log)
 
 	err, ok := <-imageChannel
 	if !ok {
@@ -88,7 +90,8 @@ func OneImage(cfg Config, storeController storage.StoreController,
 	return err
 }
 
-func syncOneImage(imageChannel chan error, cfg Config, storeController storage.StoreController,
+func syncOneImage(imageChannel chan error, cfg Config, annotationsList []string,
+	lintEnabled bool, storeController storage.StoreController,
 	localRepo, tag string, isArtifact bool, log log.Logger,
 ) {
 	var credentialsFile CredentialsFile
@@ -224,7 +227,7 @@ func syncOneImage(imageChannel chan error, cfg Config, storeController storage.S
 				copyOptions:  options,
 			}
 
-			skipped, copyErr := syncRun(regCfg, localRepo, remoteRepo, tag, syncContextUtils, log)
+			skipped, copyErr := syncRun(regCfg, annotationsList, lintEnabled, localRepo, remoteRepo, tag, syncContextUtils, log)
 			if skipped {
 				continue
 			}
@@ -259,7 +262,7 @@ func syncOneImage(imageChannel chan error, cfg Config, storeController storage.S
 					time.Sleep(retryOptions.Delay)
 
 					if err = retry.RetryIfNecessary(context.Background(), func() error {
-						_, err := syncRun(regCfg, localRepo, remoteRepo, tag, syncContextUtils, log)
+						_, err := syncRun(regCfg, annotationsList, lintEnabled, localRepo, remoteRepo, tag, syncContextUtils, log)
 
 						return err
 					}, retryOptions); err != nil {
@@ -274,7 +277,8 @@ func syncOneImage(imageChannel chan error, cfg Config, storeController storage.S
 	imageChannel <- nil
 }
 
-func syncRun(regCfg RegistryConfig, localRepo, remoteRepo, tag string, utils syncContextUtils,
+func syncRun(regCfg RegistryConfig, annotationsList []string, lintEnabled bool,
+	localRepo, remoteRepo, tag string, utils syncContextUtils,
 	log log.Logger,
 ) (bool, error) {
 	upstreamImageRef, err := getImageRef(utils.upstreamAddr, remoteRepo, tag)
@@ -346,7 +350,14 @@ func syncRun(regCfg RegistryConfig, localRepo, remoteRepo, tag string, utils syn
 		return false, err
 	}
 
-	err = pushSyncedLocalImage(localRepo, tag, localCachePath, utils.imageStore, log)
+	err = pushSyncedLocalImage(localRepo, tag, localCachePath, utils.imageStore, annotationsList, lintEnabled, log)
+	if errors.Is(err, zerr.ErrMissingAnnotations) {
+		log.Error().Err(err).Msgf("missing mandatory annotations - will skip image upload %s",
+			upstreamImageRef.DockerReference())
+
+		return false, err
+	}
+
 	if err != nil {
 		log.Error().Str("errorType", TypeOf(err)).
 			Err(err).Msgf("error while pushing synced cached image %s",

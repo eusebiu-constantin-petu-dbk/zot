@@ -147,7 +147,11 @@ func TestSyncInternal(t *testing.T) {
 		}
 		ctx := context.Background()
 
-		So(Run(ctx, cfg, storage.StoreController{}, new(goSync.WaitGroup), log.NewLogger("debug", "")), ShouldNotBeNil)
+		var annotationsList []string
+		lintEnabled := false
+
+		So(Run(ctx, cfg, annotationsList, lintEnabled, storage.StoreController{},
+			new(goSync.WaitGroup), log.NewLogger("debug", "")), ShouldNotBeNil)
 
 		_, err = getFileCredentials("/invalid/path/to/file")
 		So(err, ShouldNotBeNil)
@@ -430,7 +434,10 @@ func TestSyncInternal(t *testing.T) {
 		testRootDir := path.Join(imageStore.RootDir(), testImage, SyncBlobUploadDir)
 		// testImagePath := path.Join(testRootDir, testImage)
 
-		err := pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
+		var annotationsList []string
+		lintEnabled := false
+
+		err := pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, annotationsList, lintEnabled, log)
 		So(err, ShouldNotBeNil)
 
 		err = os.MkdirAll(testRootDir, 0o755)
@@ -459,7 +466,7 @@ func TestSyncInternal(t *testing.T) {
 
 		if os.Geteuid() != 0 {
 			So(func() {
-				_ = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
+				_ = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, annotationsList, lintEnabled, log)
 			}, ShouldPanic)
 		}
 
@@ -472,7 +479,7 @@ func TestSyncInternal(t *testing.T) {
 			panic(err)
 		}
 
-		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
+		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, annotationsList, lintEnabled, log)
 		So(err, ShouldNotBeNil)
 
 		if err := os.Chmod(path.Join(testRootDir, testImage, "blobs", "sha256",
@@ -486,7 +493,7 @@ func TestSyncInternal(t *testing.T) {
 			panic(err)
 		}
 
-		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
+		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, annotationsList, lintEnabled, log)
 		So(err, ShouldNotBeNil)
 
 		if err := os.Chmod(cachedManifestConfigPath, 0o755); err != nil {
@@ -513,7 +520,7 @@ func TestSyncInternal(t *testing.T) {
 			panic(err)
 		}
 
-		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
+		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, annotationsList, lintEnabled, log)
 		So(err, ShouldNotBeNil)
 
 		manifest.Config.Digest = configDigestBackup
@@ -538,7 +545,7 @@ func TestSyncInternal(t *testing.T) {
 			panic(err)
 		}
 
-		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, log)
+		err = pushSyncedLocalImage(testImage, testImageTag, testRootDir, imageStore, annotationsList, lintEnabled, log)
 		So(err, ShouldNotBeNil)
 	})
 }

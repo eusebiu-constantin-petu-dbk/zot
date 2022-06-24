@@ -27,6 +27,7 @@ import (
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/rs/zerolog"
 	zerr "zotregistry.io/zot/errors"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	zlog "zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/test"
@@ -528,7 +529,7 @@ func (is *ImageStoreLocal) validateOCIManifest(repo, reference string, manifest 
 
 // PutImageManifest adds an image manifest to the repository.
 func (is *ImageStoreLocal) PutImageManifest(repo, reference, mediaType string,
-	body []byte,
+	body []byte, mandatoryAnnotations []string, lintEnabled bool,
 ) (string, error) {
 	if err := is.InitRepo(repo); err != nil {
 		is.log.Debug().Err(err).Msg("init repo")
@@ -609,6 +610,20 @@ func (is *ImageStoreLocal) PutImageManifest(repo, reference, mediaType string,
 		is.log.Error().Err(err).Str("dir", dir).Msg("invalid JSON")
 
 		return "", zerr.ErrRepoBadVersion
+	}
+
+	// check mandatory annotations
+	var manifest ispec.Manifest
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		is.log.Error().Err(err).Str("dir", dir).Msg("invalid JSON")
+
+		return "", err
+	}
+
+	pass := lint.CheckMandatoryAnnotations(manifest, mandatoryAnnotations, lintEnabled)
+
+	if !pass {
+		return "", zerr.ErrMissingAnnotations
 	}
 
 	updateIndex := true

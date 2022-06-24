@@ -452,7 +452,17 @@ func (rh *RouteHandler) UpdateManifest(response http.ResponseWriter, request *ht
 		return
 	}
 
-	digest, err := imgStore.PutImageManifest(name, reference, mediaType, body)
+	var mandatoryAnnotations []string
+
+	var lintEnabled bool
+
+	if rh.c.Config.Extensions != nil && rh.c.Config.Extensions.Lint != nil &&
+		rh.c.Config.Extensions.Lint.MandatoryAnnotations != nil {
+		mandatoryAnnotations = rh.c.Config.Extensions.Lint.MandatoryAnnotations.AnnotationsList
+		lintEnabled = *rh.c.Config.Extensions.Lint.Enabled
+	}
+
+	digest, err := imgStore.PutImageManifest(name, reference, mediaType, body, mandatoryAnnotations, lintEnabled)
 	if err != nil {
 		if errors.Is(err, zerr.ErrRepoNotFound) { //nolint:gocritic // errorslint conflicts with gocritic:IfElseChain
 			WriteJSON(response, http.StatusNotFound,
@@ -469,6 +479,9 @@ func (rh *RouteHandler) UpdateManifest(response http.ResponseWriter, request *ht
 		} else if errors.Is(err, zerr.ErrRepoBadVersion) {
 			WriteJSON(response, http.StatusInternalServerError,
 				NewErrorList(NewError(INVALID_INDEX, map[string]string{"name": name})))
+		} else if errors.Is(err, zerr.ErrMissingAnnotations) {
+			WriteJSON(response, http.StatusBadRequest,
+				NewErrorList(NewError(MANIFEST_INVALID, map[string]string{"reference": reference})))
 		} else {
 			// could be syscall.EMFILE (Err:0x18 too many opened files), etc
 			rh.c.Log.Error().Err(err).Msg("unexpected error: performing cleanup")

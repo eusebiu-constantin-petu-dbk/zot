@@ -196,7 +196,8 @@ func syncCosignSignature(client *resty.Client, imageStore storage.ImageStore,
 	}
 
 	// push manifest
-	_, err = imageStore.PutImageManifest(localRepo, cosignTag, ispec.MediaTypeImageManifest, cosignManifestBuf)
+	_, err = imageStore.PutImageManifest(localRepo, cosignTag,
+		ispec.MediaTypeImageManifest, cosignManifestBuf, []string{}, false)
 	if err != nil {
 		log.Error().Str("errorType", TypeOf(err)).
 			Err(err).Msg("couldn't upload cosign manifest")
@@ -276,7 +277,7 @@ func syncNotarySignature(client *resty.Client, imageStore storage.ImageStore,
 		}
 
 		_, err = imageStore.PutImageManifest(localRepo, ref.Digest.String(),
-			artifactspec.MediaTypeArtifactManifest, resp.Body())
+			artifactspec.MediaTypeArtifactManifest, resp.Body(), []string{}, false)
 		if err != nil {
 			log.Error().Str("errorType", TypeOf(err)).
 				Err(err).Msg("couldn't upload notary sig manifest")

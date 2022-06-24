@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"zotregistry.io/zot/pkg/api/config"
 	"zotregistry.io/zot/pkg/api/constants"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/scrub"
 	"zotregistry.io/zot/pkg/extensions/search"
 	cveinfo "zotregistry.io/zot/pkg/extensions/search/cve"
@@ -79,7 +80,20 @@ func EnableSyncExtension(ctx context.Context, config *config.Config, wg *goSync.
 	storeController storage.StoreController, log log.Logger,
 ) {
 	if config.Extensions.Sync != nil && *config.Extensions.Sync.Enable {
-		if err := sync.Run(ctx, *config.Extensions.Sync, storeController, wg, log); err != nil {
+		if config.Extensions.Lint == nil {
+			config.Extensions.Lint = &lint.Config{}
+		}
+
+		if config.Extensions.Lint.Enabled == nil || config.Extensions.Lint.MandatoryAnnotations == nil {
+			enabled := false
+			config.Extensions.Lint.Enabled = &enabled
+			config.Extensions.Lint.MandatoryAnnotations = &lint.MandatoryAnnotationsConfig{}
+			config.Extensions.Lint.MandatoryAnnotations.AnnotationsList = []string{}
+		}
+
+		if err := sync.Run(ctx, *config.Extensions.Sync,
+			config.Extensions.Lint.MandatoryAnnotations.AnnotationsList,
+			*config.Extensions.Lint.Enabled, storeController, wg, log); err != nil {
 			log.Error().Err(err).Msg("Error encountered while setting up syncing")
 		}
 	} else {
@@ -168,7 +182,9 @@ func SyncOneImage(config *config.Config, storeController storage.StoreController
 ) error {
 	log.Info().Msgf("syncing image %s:%s", repoName, reference)
 
-	err := sync.OneImage(*config.Extensions.Sync, storeController, repoName, reference, isArtifact, log)
+	err := sync.OneImage(*config.Extensions.Sync,
+		config.Extensions.Lint.MandatoryAnnotations.AnnotationsList,
+		*config.Extensions.Lint.Enabled, storeController, repoName, reference, isArtifact, log)
 
 	return err
 }
