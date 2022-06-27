@@ -137,6 +137,8 @@ func GetExtensions(config *config.Config) distext.ExtensionList {
 	return extensionList
 }
 
+//make an interface
+
 // SetupRoutes ...
 func SetupRoutes(config *config.Config, router *mux.Router, storeController storage.StoreController, sysConfigManger *sysconfig.SysConfigManager, l log.Logger,
 ) {

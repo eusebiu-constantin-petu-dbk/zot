@@ -997,12 +997,11 @@ func (rh *RouteHandler) PatchBlobUpload(response http.ResponseWriter, request *h
 
 		return
 	}
-	fmt.Sscanf()
+
 	response.Header().Set("Location", getBlobUploadSessionLocation(request.URL, sessionID))
 	response.Header().Set("Range", fmt.Sprintf("0-%d", clen-1))
 	response.Header().Set("Content-Length", "0")
 	response.Header().Set(constants.BlobUploadUUID, sessionID)
-	response.Header().Set("Docker-Upload-UUID", sessionID)
 	response.WriteHeader(http.StatusAccepted)
 }
 

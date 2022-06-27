@@ -148,7 +148,7 @@ func (c *Controller) Run() error {
 
 	c.Metrics = monitoring.NewMetricsServer(enabled, c.Log)
 
-	c.SysConfigManger = sysconfig.NewSysConfigManager(c.Config, c.loadNewConfig, c.Log)
+	c.SysConfigManger = sysconfig.NewSysConfigManager(c.Config, c.StoreController, c.wgShutDown, c.Log)
 
 	if err := c.InitImageStore(c.SysConfigManger.GetContext()); err != nil {
 		return err
@@ -327,25 +327,6 @@ func (c *Controller) InitImageStore(reloadCtx context.Context) error {
 	c.StartBackgroundTasks(reloadCtx)
 
 	return nil
-}
-
-func (c *Controller) loadNewConfig(reloadCtx context.Context, config *config.Config) *config.Config {
-	// reload access control config
-	c.Config.AccessControl = config.AccessControl
-	//c.Config.HTTP.RawAccessControl = config.HTTP.RawAccessControl
-
-	// Enable extensions if extension config is provided
-	if config.Extensions != nil && config.Extensions.Sync != nil {
-		// reload sync config
-		c.Config.Extensions.Sync = config.Extensions.Sync
-		ext.EnableSyncExtension(reloadCtx, c.Config, c.wgShutDown, c.StoreController, c.Log)
-	} else if c.Config.Extensions != nil {
-		c.Config.Extensions.Sync = nil
-	}
-
-	c.Log.Info().Interface("reloaded params", c.Config.Sanitize()).Msg("new configuration settings")
-
-	return c.Config
 }
 
 func (c *Controller) Shutdown() {
