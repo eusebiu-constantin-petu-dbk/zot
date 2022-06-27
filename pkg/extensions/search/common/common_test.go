@@ -283,7 +283,7 @@ func TestLatestTagSearchHTTP(t *testing.T) {
 
 		go func() {
 			// this blocks
-			if err := ctlr.Run(context.Background()); err != nil {
+			if err := ctlr.Run(); err != nil {
 				return
 			}
 		}()
@@ -423,7 +423,7 @@ func TestExpandedRepoInfo(t *testing.T) {
 
 		go func() {
 			// this blocks
-			if err := ctlr.Run(context.Background()); err != nil {
+			if err := ctlr.Run(); err != nil {
 				return
 			}
 		}()

@@ -36,6 +36,7 @@ import (
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
 	"zotregistry.io/zot/pkg/test" // nolint: goimports
+
 	// as required by swaggo.
 	_ "zotregistry.io/zot/swagger"
 )
@@ -121,7 +122,7 @@ func (rh *RouteHandler) SetupRoutes() {
 			prefixedRouter.HandleFunc("/metrics", rh.GetMetrics).Methods("GET")
 		} else {
 			// extended build
-			ext.SetupRoutes(rh.c.Config, rh.c.Router, rh.c.StoreController, rh.c.Log)
+			ext.SetupRoutes(rh.c.Config, rh.c.Router, rh.c.StoreController, rh.c.SysConfigManger, rh.c.Log)
 		}
 	}
 }
@@ -996,11 +997,12 @@ func (rh *RouteHandler) PatchBlobUpload(response http.ResponseWriter, request *h
 
 		return
 	}
-
+	fmt.Sscanf()
 	response.Header().Set("Location", getBlobUploadSessionLocation(request.URL, sessionID))
-	response.Header().Set("Range", fmt.Sprintf("bytes=0-%d", clen-1))
+	response.Header().Set("Range", fmt.Sprintf("0-%d", clen-1))
 	response.Header().Set("Content-Length", "0")
 	response.Header().Set(constants.BlobUploadUUID, sessionID)
+	response.Header().Set("Docker-Upload-UUID", sessionID)
 	response.WriteHeader(http.StatusAccepted)
 }
 

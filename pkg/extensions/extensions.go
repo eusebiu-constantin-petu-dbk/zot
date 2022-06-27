@@ -19,6 +19,7 @@ import (
 	"zotregistry.io/zot/pkg/extensions/search"
 	cveinfo "zotregistry.io/zot/pkg/extensions/search/cve"
 	"zotregistry.io/zot/pkg/extensions/sync"
+	"zotregistry.io/zot/pkg/api/sysconfig"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
 )
@@ -137,7 +138,7 @@ func GetExtensions(config *config.Config) distext.ExtensionList {
 }
 
 // SetupRoutes ...
-func SetupRoutes(config *config.Config, router *mux.Router, storeController storage.StoreController, l log.Logger,
+func SetupRoutes(config *config.Config, router *mux.Router, storeController storage.StoreController, sysConfigManger *sysconfig.SysConfigManager, l log.Logger,
 ) {
 	// fork a new zerolog child to avoid data race
 	log := log.Logger{Logger: l.With().Caller().Timestamp().Logger()}
@@ -159,6 +160,10 @@ func SetupRoutes(config *config.Config, router *mux.Router, storeController stor
 	if config.Extensions.Metrics != nil && *config.Extensions.Metrics.Enable {
 		router.PathPrefix(config.Extensions.Metrics.Prometheus.Path).
 			Handler(promhttp.Handler())
+	}
+
+	if config.Extensions.SysConfig != nil && *config.Extensions.SysConfig.Enable {
+		router.PathPrefix(constants.ExtConfigPrefix).Methods("GET", "POST", "PATCH").HandlerFunc(sysConfigManger.SystemConfigurationHandler)
 	}
 }
 

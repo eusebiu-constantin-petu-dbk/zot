@@ -119,7 +119,7 @@ func TestRunAlreadyRunningServer(t *testing.T) {
 		ctlr.Config.Storage.RootDirectory = globalDir
 
 		go func() {
-			if err := ctlr.Run(context.Background()); err != nil {
+			if err := ctlr.Run(); err != nil {
 				return
 			}
 		}()
@@ -139,7 +139,7 @@ func TestRunAlreadyRunningServer(t *testing.T) {
 			_ = ctlr.Server.Shutdown(ctx)
 		}()
 
-		err := ctlr.Run(context.Background())
+		err := ctlr.Run()
 		So(err, ShouldNotBeNil)
 	})
 }
@@ -160,7 +160,7 @@ func TestObjectStorageController(t *testing.T) {
 
 		ctlr.Config.Storage.RootDirectory = "zot"
 
-		err := ctlr.Run(context.Background())
+		err := ctlr.Run()
 		So(err, ShouldNotBeNil)
 	})
 
@@ -774,7 +774,7 @@ func TestMultipleInstance(t *testing.T) {
 			},
 		}
 		ctlr := api.NewController(conf)
-		err := ctlr.Run(context.Background())
+		err := ctlr.Run()
 		So(err, ShouldEqual, errors.ErrImgStoreNotFound)
 
 		globalDir := t.TempDir()
@@ -3286,7 +3286,7 @@ func TestImageSignatures(t *testing.T) {
 		ctlr.Config.Storage.RootDirectory = dir
 		go func(controller *api.Controller) {
 			// this blocks
-			if err := controller.Run(context.Background()); err != nil {
+			if err := controller.Run(); err != nil {
 				return
 			}
 		}(ctlr)
@@ -5063,8 +5063,7 @@ func getAllManifests(imagePath string) []string {
 
 func startServer(c *api.Controller) {
 	// this blocks
-	ctx := context.Background()
-	if err := c.Run(ctx); err != nil {
+	if err := c.Run(); err != nil {
 		return
 	}
 }

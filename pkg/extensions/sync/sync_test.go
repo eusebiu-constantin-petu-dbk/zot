@@ -161,7 +161,7 @@ func startUpstreamServer(
 
 	go func() {
 		// this blocks
-		if err := sctlr.Run(context.Background()); err != nil {
+		if err := sctlr.Run(); err != nil {
 			return
 		}
 	}()
@@ -234,7 +234,7 @@ func startDownstreamServer(
 
 	go func() {
 		// this blocks
-		if err := dctlr.Run(context.Background()); err != nil {
+		if err := dctlr.Run(); err != nil {
 			return
 		}
 	}()
@@ -723,7 +723,7 @@ func TestOnDemandPermsDenied(t *testing.T) {
 
 		go func() {
 			// this blocks
-			if err := dctlr.Run(context.Background()); err != nil {
+			if err := dctlr.Run(); err != nil {
 				return
 			}
 		}()
@@ -820,11 +820,11 @@ func TestConfigReloader(t *testing.T) {
 		hotReloader, err := cli.NewHotReloader(dctlr, cfgfile.Name())
 		So(err, ShouldBeNil)
 
-		reloadCtx := hotReloader.Start()
+		hotReloader.Start()
 
 		go func() {
 			// this blocks
-			if err := dctlr.Run(reloadCtx); err != nil {
+			if err := dctlr.Run(); err != nil {
 				return
 			}
 		}()
@@ -1159,7 +1159,7 @@ func TestBasicAuth(t *testing.T) {
 
 			go func() {
 				// this blocks
-				if err := dctlr.Run(context.Background()); err != nil {
+				if err := dctlr.Run(); err != nil {
 					return
 				}
 			}()
@@ -1766,7 +1766,7 @@ func TestSubPaths(t *testing.T) {
 
 		go func() {
 			// this blocks
-			if err := sctlr.Run(context.Background()); err != nil {
+			if err := sctlr.Run(); err != nil {
 				return
 			}
 		}()
@@ -1833,7 +1833,7 @@ func TestSubPaths(t *testing.T) {
 
 		go func() {
 			// this blocks
-			if err := dctlr.Run(context.Background()); err != nil {
+			if err := dctlr.Run(); err != nil {
 				return
 			}
 		}()
@@ -2738,7 +2738,7 @@ func TestOnDemandRetryGoroutine(t *testing.T) {
 		// start upstream server
 		go func() {
 			// this blocks
-			if err := sctlr.Run(context.Background()); err != nil {
+			if err := sctlr.Run(); err != nil {
 				return
 			}
 		}()
@@ -2896,7 +2896,7 @@ func TestOnDemandMultipleRetries(t *testing.T) {
 		// start upstream server
 		go func() {
 			// this blocks
-			if err := sctlr.Run(context.Background()); err != nil {
+			if err := sctlr.Run(); err != nil {
 				return
 			}
 		}()
@@ -3379,7 +3379,7 @@ func TestSyncOnlyDiff(t *testing.T) {
 
 		go func() {
 			// this blocks
-			if err := dctlr.Run(context.Background()); err != nil {
+			if err := dctlr.Run(); err != nil {
 				return
 			}
 		}()
@@ -3528,7 +3528,7 @@ func TestSyncWithDiffDigest(t *testing.T) {
 
 		go func() {
 			// this blocks
-			if err := dctlr.Run(context.Background()); err != nil {
+			if err := dctlr.Run(); err != nil {
 				return
 			}
 		}()

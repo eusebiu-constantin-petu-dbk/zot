@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	glob "github.com/bmatcuk/doublestar/v4"
 	"github.com/mitchellh/mapstructure"
 	distspec "github.com/opencontainers/distribution-spec/specs-go"
 	"github.com/rs/zerolog/log"
@@ -19,7 +18,6 @@ import (
 	"zotregistry.io/zot/pkg/api/constants"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
-	"zotregistry.io/zot/pkg/storage"
 )
 
 // metadataConfig reports metadata after parsing, which we use to track
@@ -54,9 +52,9 @@ func newServeCmd(conf *config.Config) *cobra.Command {
 
 			/* context used to cancel go routines so that
 			we can change their config on the fly (restart routines with different config) */
-			reloaderCtx := hotReloader.Start()
+			hotReloader.Start()
 
-			if err := ctlr.Run(reloaderCtx); err != nil {
+			if err := ctlr.Run(); err != nil {
 				panic(err)
 			}
 		},
@@ -202,85 +200,6 @@ func NewCliRootCmd() *cobra.Command {
 	return rootCmd
 }
 
-func validateConfiguration(config *config.Config) error {
-	if err := validateGC(config); err != nil {
-		return err
-	}
-
-	if err := validateLDAP(config); err != nil {
-		return err
-	}
-
-	if err := validateSync(config); err != nil {
-		return err
-	}
-
-	// check authorization config, it should have basic auth enabled or ldap
-	if config.HTTP.RawAccessControl != nil {
-		if config.HTTP.Auth == nil || (config.HTTP.Auth.HTPasswd.Path == "" && config.HTTP.Auth.LDAP == nil) {
-			// checking for default policy only authorization config: no users, no policies but default policy
-			checkForDefaultPolicyConfig(config)
-		}
-	}
-
-	if len(config.Storage.StorageDriver) != 0 {
-		// enforce s3 driver in case of using storage driver
-		if config.Storage.StorageDriver["name"] != storage.S3StorageDriverName {
-			log.Error().Err(errors.ErrBadConfig).Msgf("unsupported storage driver: %s", config.Storage.StorageDriver["name"])
-
-			return errors.ErrBadConfig
-		}
-
-		// enforce filesystem storage in case sync feature is enabled
-		if config.Extensions != nil && config.Extensions.Sync != nil {
-			log.Error().Err(errors.ErrBadConfig).Msg("sync supports only filesystem storage")
-
-			return errors.ErrBadConfig
-		}
-	}
-
-	// enforce s3 driver on subpaths in case of using storage driver
-	if config.Storage.SubPaths != nil {
-		if len(config.Storage.SubPaths) > 0 {
-			subPaths := config.Storage.SubPaths
-
-			for route, storageConfig := range subPaths {
-				if len(storageConfig.StorageDriver) != 0 {
-					if storageConfig.StorageDriver["name"] != storage.S3StorageDriverName {
-						log.Error().Err(errors.ErrBadConfig).Str("subpath",
-							route).Msgf("unsupported storage driver: %s", storageConfig.StorageDriver["name"])
-
-						return errors.ErrBadConfig
-					}
-				}
-			}
-		}
-	}
-
-	// check glob patterns in authz config are compilable
-	if config.AccessControl != nil {
-		for pattern := range config.AccessControl.Repositories {
-			ok := glob.ValidatePattern(pattern)
-			if !ok {
-				log.Error().Err(glob.ErrBadPattern).Str("pattern", pattern).Msg("authorization pattern could not be compiled")
-
-				return glob.ErrBadPattern
-			}
-		}
-	}
-
-	return nil
-}
-
-func checkForDefaultPolicyConfig(config *config.Config) {
-	if !isDefaultPolicyConfig(config) {
-		log.Error().Err(errors.ErrBadConfig).
-			Msg("access control config requires httpasswd, ldap authentication " +
-				"or using only 'defaultPolicy' policies")
-		panic(errors.ErrBadConfig)
-	}
-}
-
 func applyDefaultValues(config *config.Config, viperInstance *viper.Viper) {
 	defaultVal := true
 
@@ -343,18 +262,6 @@ func applyDefaultValues(config *config.Config, viperInstance *viper.Viper) {
 	}
 }
 
-func updateDistSpecVersion(config *config.Config) {
-	if config.DistSpecVersion == distspec.Version {
-		return
-	}
-
-	log.Warn().
-		Msgf("config dist-spec version: %s differs from version actually used: %s",
-			config.DistSpecVersion, distspec.Version)
-
-	config.DistSpecVersion = distspec.Version
-}
-
 func LoadConfiguration(config *config.Config, configPath string) error {
 	// Default is dot (.) but because we allow glob patterns in authz
 	// we need another key delimiter.
@@ -398,126 +305,8 @@ func LoadConfiguration(config *config.Config, configPath string) error {
 	applyDefaultValues(config, viperInstance)
 
 	// various config checks
-	if err := validateConfiguration(config); err != nil {
+	if err := config.Validate(); err != nil {
 		return err
-	}
-
-	// update distSpecVersion
-	updateDistSpecVersion(config)
-
-	return nil
-}
-
-func isDefaultPolicyConfig(cfg *config.Config) bool {
-	adminPolicy := cfg.AccessControl.AdminPolicy
-
-	log.Info().Msg("checking if default authorization is possible")
-
-	if len(adminPolicy.Actions)+len(adminPolicy.Users) > 0 {
-		log.Info().Msg("admin policy detected, default authorization disabled")
-
-		return false
-	}
-
-	for _, repository := range cfg.AccessControl.Repositories {
-		for _, policy := range repository.Policies {
-			if len(policy.Actions)+len(policy.Users) > 0 {
-				log.Info().Interface("repository", repository).
-					Msg("repository with non-empty policy detected, default authorization disabled")
-
-				return false
-			}
-		}
-	}
-
-	log.Info().Msg("default authorization detected")
-
-	return true
-}
-
-func validateLDAP(config *config.Config) error {
-	// LDAP mandatory configuration
-	if config.HTTP.Auth != nil && config.HTTP.Auth.LDAP != nil {
-		ldap := config.HTTP.Auth.LDAP
-		if ldap.UserAttribute == "" {
-			log.Error().Str("userAttribute", ldap.UserAttribute).
-				Msg("invalid LDAP configuration, missing mandatory key: userAttribute")
-
-			return errors.ErrLDAPConfig
-		}
-
-		if ldap.Address == "" {
-			log.Error().Str("address", ldap.Address).
-				Msg("invalid LDAP configuration, missing mandatory key: address")
-
-			return errors.ErrLDAPConfig
-		}
-
-		if ldap.BaseDN == "" {
-			log.Error().Str("basedn", ldap.BaseDN).
-				Msg("invalid LDAP configuration, missing mandatory key: basedn")
-
-			return errors.ErrLDAPConfig
-		}
-	}
-
-	return nil
-}
-
-func validateGC(config *config.Config) error {
-	// enforce GC params
-	if config.Storage.GCDelay < 0 {
-		log.Error().Err(errors.ErrBadConfig).
-			Msgf("invalid garbage-collect delay %v specified", config.Storage.GCDelay)
-
-		return errors.ErrBadConfig
-	}
-
-	if config.Storage.GCInterval < 0 {
-		log.Error().Err(errors.ErrBadConfig).
-			Msgf("invalid garbage-collect interval %v specified", config.Storage.GCInterval)
-
-		return errors.ErrBadConfig
-	}
-
-	if !config.Storage.GC {
-		if config.Storage.GCDelay != 0 {
-			log.Warn().Err(errors.ErrBadConfig).
-				Msg("garbage-collect delay specified without enabling garbage-collect, will be ignored")
-		}
-
-		if config.Storage.GCInterval != 0 {
-			log.Warn().Err(errors.ErrBadConfig).
-				Msg("periodic garbage-collect interval specified without enabling garbage-collect, will be ignored")
-		}
-	}
-
-	return nil
-}
-
-func validateSync(config *config.Config) error {
-	// check glob patterns in sync config are compilable
-	if config.Extensions != nil && config.Extensions.Sync != nil {
-		for id, regCfg := range config.Extensions.Sync.Registries {
-			// check retry options are configured for sync
-			if regCfg.MaxRetries != nil && regCfg.RetryDelay == nil {
-				log.Error().Err(errors.ErrBadConfig).Msgf("extensions.sync.registries[%d].retryDelay"+
-					" is required when using extensions.sync.registries[%d].maxRetries", id, id)
-
-				return errors.ErrBadConfig
-			}
-
-			if regCfg.Content != nil {
-				for _, content := range regCfg.Content {
-					ok := glob.ValidatePattern(content.Prefix)
-					if !ok {
-						log.Error().Err(glob.ErrBadPattern).Str("pattern", content.Prefix).Msg("sync pattern could not be compiled")
-
-						return glob.ErrBadPattern
-					}
-				}
-			}
-		}
 	}
 
 	return nil

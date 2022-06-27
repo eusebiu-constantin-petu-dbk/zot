@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"context"
-
 	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog/log"
 	"zotregistry.io/zot/pkg/api"
@@ -31,10 +29,9 @@ func NewHotReloader(ctlr *api.Controller, filePath string) (*HotReloader, error)
 	return hotReloader, nil
 }
 
-func (hr *HotReloader) Start() context.Context {
+func (hr *HotReloader) Start() {
 	done := make(chan bool)
 
-	reloadCtx, cancelOnReloadFunc := context.WithCancel(context.Background())
 	// run watcher
 	go func() {
 		defer hr.watcher.Close()
@@ -55,12 +52,7 @@ func (hr *HotReloader) Start() context.Context {
 
 							continue
 						}
-						// if valid config then reload
-						cancelOnReloadFunc()
-
-						// create new context
-						reloadCtx, cancelOnReloadFunc = context.WithCancel(context.Background())
-						hr.ctlr.LoadNewConfig(reloadCtx, newConfig)
+						hr.ctlr.SysConfigManger.LoadNewConfig(newConfig)
 					}
 				// watch for errors
 				case err := <-hr.watcher.Errors:
@@ -77,6 +69,4 @@ func (hr *HotReloader) Start() context.Context {
 
 		<-done
 	}()
-
-	return reloadCtx
 }

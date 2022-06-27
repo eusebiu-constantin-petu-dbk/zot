@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/mux"
 	"zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/api/config"
+	"zotregistry.io/zot/pkg/api/sysconfig"
 	ext "zotregistry.io/zot/pkg/extensions"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
@@ -39,6 +40,7 @@ type Controller struct {
 	Audit           *log.Logger
 	Server          *http.Server
 	Metrics         monitoring.MetricServer
+	SysConfigManger *sysconfig.SysConfigManager
 	wgShutDown      *goSync.WaitGroup // use it to gracefully shutdown goroutines
 }
 
@@ -102,7 +104,7 @@ func DumpRuntimeParams(log log.Logger) {
 	evt.Msg("runtime params")
 }
 
-func (c *Controller) Run(reloadCtx context.Context) error {
+func (c *Controller) Run() error {
 	// print the current configuration, but strip secrets
 	c.Log.Info().Interface("params", c.Config.Sanitize()).Msg("configuration settings")
 
@@ -146,7 +148,9 @@ func (c *Controller) Run(reloadCtx context.Context) error {
 
 	c.Metrics = monitoring.NewMetricsServer(enabled, c.Log)
 
-	if err := c.InitImageStore(reloadCtx); err != nil {
+	c.SysConfigManger = sysconfig.NewSysConfigManager(c.Config, c.loadNewConfig, c.Log)
+
+	if err := c.InitImageStore(c.SysConfigManger.GetContext()); err != nil {
 		return err
 	}
 
@@ -325,10 +329,10 @@ func (c *Controller) InitImageStore(reloadCtx context.Context) error {
 	return nil
 }
 
-func (c *Controller) LoadNewConfig(reloadCtx context.Context, config *config.Config) {
+func (c *Controller) loadNewConfig(reloadCtx context.Context, config *config.Config) *config.Config {
 	// reload access control config
 	c.Config.AccessControl = config.AccessControl
-	c.Config.HTTP.RawAccessControl = config.HTTP.RawAccessControl
+	//c.Config.HTTP.RawAccessControl = config.HTTP.RawAccessControl
 
 	// Enable extensions if extension config is provided
 	if config.Extensions != nil && config.Extensions.Sync != nil {
@@ -340,6 +344,8 @@ func (c *Controller) LoadNewConfig(reloadCtx context.Context, config *config.Con
 	}
 
 	c.Log.Info().Interface("reloaded params", c.Config.Sanitize()).Msg("new configuration settings")
+
+	return c.Config
 }
 
 func (c *Controller) Shutdown() {

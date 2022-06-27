@@ -35,5 +35,10 @@
   },
   "log": {
     "level": "debug"
+  },
+    "extensions": {
+      "sysconfig": {
+          "enable": true
+      }
   }
 }

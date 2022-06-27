@@ -7,10 +7,15 @@ import (
 )
 
 type ExtensionConfig struct {
-	Search  *SearchConfig
-	Sync    *sync.Config
-	Metrics *MetricsConfig
-	Scrub   *ScrubConfig
+	Search    *SearchConfig
+	Sync      *sync.Config
+	Metrics   *MetricsConfig
+	Scrub     *ScrubConfig
+	SysConfig *SysConfig
+}
+
+type SysConfig struct {
+	Enable *bool
 }
 
 type SearchConfig struct {

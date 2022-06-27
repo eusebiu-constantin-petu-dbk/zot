@@ -585,7 +585,7 @@ func TestScrub(t *testing.T) {
 			controller.Config.Storage.RootDirectory = dir
 			go func(controller *api.Controller) {
 				// this blocks
-				if err := controller.Run(context.Background()); err != nil {
+				if err := controller.Run(); err != nil {
 					return
 				}
 			}(controller)
