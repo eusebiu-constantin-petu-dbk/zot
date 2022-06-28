@@ -285,6 +285,65 @@ func FuzzInitRepo(f *testing.F) {
 	})
 }
 
+func FuzzValidateRepo(f *testing.F) {
+	f.Add("test")
+	f.Add("code42")
+	f.Add("RaNdOm")
+	f.Fuzz(func (t *testing.T, data string)  {
+		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, *log)
+
+		dir := t.TempDir()
+		defer os.RemoveAll(dir)
+
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, *log, metrics)
+		_,_ = imgStore.ValidateRepo(data)
+	})
+}
+
+func FuzzGetImageTags(f *testing.F) {
+	f.Add("1.0")
+	f.Add("0.3")
+	f.Add("5")
+	f.Fuzz(func (t *testing.T, data string)  {
+		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, *log)
+
+		dir := t.TempDir()
+		defer os.RemoveAll(dir)
+
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, *log, metrics)
+		_,_ = imgStore.GetImageTags(data)
+	})
+}
+
+func FuzzBlobUploadPath(f *testing.F) {
+	f.Add("test")
+	f.Add("code42")
+	f.Add("RaNdOm")
+	f.Fuzz(func (t *testing.T, data string)  {
+		f := fuzz.NewConsumer([]byte(data))
+		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, *log)
+
+		dir := t.TempDir()
+		defer os.RemoveAll(dir)
+
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, *log, metrics)
+		repo, err := f.GetString()
+		if err != nil {
+			return
+		}
+		uuid, err := f.GetString()
+		if err != nil {
+			return
+		}
+
+
+		_ = imgStore.BlobUploadPath(repo, uuid)
+	})
+}
+
 // func FuzzTestGetImageManifest(f *testing.F) {
 // 	f.Add("this is a blob")
 // 	f.Fuzz(func(t *testing.T, data string) {
