@@ -6,6 +6,7 @@ package extensions
 import (
 	"context"
 	"fmt"
+	"net/http"
 	goSync "sync"
 	"time"
 
@@ -19,10 +20,11 @@ import (
 	"zotregistry.io/zot/pkg/extensions/search"
 	cveinfo "zotregistry.io/zot/pkg/extensions/search/cve"
 	"zotregistry.io/zot/pkg/extensions/sync"
-	"zotregistry.io/zot/pkg/api/sysconfig"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
 )
+
+type configManagerHandler func(response http.ResponseWriter, request *http.Request)
 
 // DownloadTrivyDB ...
 func downloadTrivyDB(dbDir string, log log.Logger, updateInterval time.Duration) error {
@@ -140,7 +142,7 @@ func GetExtensions(config *config.Config) distext.ExtensionList {
 //make an interface
 
 // SetupRoutes ...
-func SetupRoutes(config *config.Config, router *mux.Router, storeController storage.StoreController, sysConfigManger *sysconfig.SysConfigManager, l log.Logger,
+func SetupRoutes(config *config.Config, router *mux.Router, storeController storage.StoreController, cfgHandler configManagerHandler, l log.Logger,
 ) {
 	// fork a new zerolog child to avoid data race
 	log := log.Logger{Logger: l.With().Caller().Timestamp().Logger()}
@@ -165,7 +167,7 @@ func SetupRoutes(config *config.Config, router *mux.Router, storeController stor
 	}
 
 	if config.Extensions.SysConfig != nil && *config.Extensions.SysConfig.Enable {
-		router.PathPrefix(constants.ExtConfigPrefix).Methods("GET", "POST", "PATCH").HandlerFunc(sysConfigManger.SystemConfigurationHandler)
+		router.PathPrefix(constants.ExtConfigPrefix).Methods("GET", "POST", "PATCH").HandlerFunc(cfgHandler)
 	}
 }
 

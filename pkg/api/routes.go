@@ -122,7 +122,7 @@ func (rh *RouteHandler) SetupRoutes() {
 			prefixedRouter.HandleFunc("/metrics", rh.GetMetrics).Methods("GET")
 		} else {
 			// extended build
-			ext.SetupRoutes(rh.c.Config, rh.c.Router, rh.c.StoreController, rh.c.SysConfigManger, rh.c.Log)
+			ext.SetupRoutes(rh.c.Config, rh.c.Router, rh.c.StoreController, rh.c.SysConfigManger.Handler, rh.c.Log)
 		}
 	}
 }

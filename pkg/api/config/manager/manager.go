@@ -1,20 +1,19 @@
-package sysconfig
+package manager
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"sync"
 
+	"zotregistry.io/zot/pkg/api/config"
 	"zotregistry.io/zot/pkg/log"
-	"zotregistry.io/zot/pkg/storage"
 
 	ext "zotregistry.io/zot/pkg/extensions"
-
-	"zotregistry.io/zot/pkg/api/config"
+	"zotregistry.io/zot/pkg/storage"
 )
 
-type ctlrReloadConfigFunc func(reloadCtx context.Context, config *config.Config) *config.Config
-
-type SysConfigManager struct {
+type ConfigManager struct {
 	config          *config.Config
 	storeController storage.StoreController
 	wgShutDown      *sync.WaitGroup
@@ -23,8 +22,8 @@ type SysConfigManager struct {
 	log             log.Logger
 }
 
-func NewSysConfigManager(config *config.Config, storeController storage.StoreController, wgShutDown *sync.WaitGroup, logger log.Logger) *SysConfigManager {
-	scm := &SysConfigManager{
+func NewSysConfigManager(config *config.Config, storeController storage.StoreController, wgShutDown *sync.WaitGroup, logger log.Logger) *ConfigManager {
+	scm := &ConfigManager{
 		config:          config,
 		storeController: storeController,
 		wgShutDown:      wgShutDown,
@@ -36,7 +35,7 @@ func NewSysConfigManager(config *config.Config, storeController storage.StoreCon
 	return scm
 }
 
-func (scm *SysConfigManager) LoadNewConfig(config *config.Config) {
+func (scm *ConfigManager) LoadNewConfig(config *config.Config) {
 	scm.cancelRoutines()
 	scm.reloadCtx, scm.cancelRoutines = context.WithCancel(context.Background())
 
@@ -57,6 +56,42 @@ func (scm *SysConfigManager) LoadNewConfig(config *config.Config) {
 	scm.log.Info().Interface("reloaded params", scm.config.Sanitize()).Msg("new configuration settings")
 }
 
-func (scm *SysConfigManager) GetContext() context.Context {
+func (scm *ConfigManager) GetContext() context.Context {
 	return scm.reloadCtx
+}
+
+func (scm *ConfigManager) CleanConfig() {
+	scm.config
+}
+
+// extension enabled
+func (scm *ConfigManager) Handler(response http.ResponseWriter, request *http.Request) {
+	switch request.Method {
+	case http.MethodGet:
+		scm.log.Info().Msg("scm get")
+
+		config, err := json.Marshal(scm.config)
+		if err != nil {
+			response.WriteHeader(http.StatusInternalServerError)
+
+			return
+		}
+
+		response.WriteHeader(http.StatusOK)
+		response.Write(config)
+
+		return
+	case http.MethodPost:
+		scm.log.Info().Msg("scm post")
+		cfg := config.New()
+		scm.LoadNewConfig(cfg)
+	case http.MethodPatch:
+		scm.log.Info().Msg("scm patch")
+	default:
+		http.Error(response, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	response.WriteHeader(http.StatusAccepted)
 }

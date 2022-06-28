@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"time"
 
 	glob "github.com/bmatcuk/doublestar/v4"
@@ -177,20 +178,27 @@ func (c *Config) LoadAccessControlConfig(viperInstance *viper.Viper) error {
 	c.AccessControl.Repositories = make(map[string]PolicyGroup)
 
 	for policy := range c.HTTP.RawAccessControl {
-		//var policyGroup PolicyGroup
+		var policies []Policy
+
+		var policyGroup PolicyGroup
 
 		if policy == "adminpolicy" {
-			adminPolicy := c.HTTP.RawAccessControl["adminPolicy"].(map[string][]string)
+			adminPolicy := viperInstance.GetStringMapStringSlice("http::accessControl::adminPolicy")
 			c.AccessControl.AdminPolicy.Actions = adminPolicy["actions"]
 			c.AccessControl.AdminPolicy.Users = adminPolicy["users"]
 
 			continue
 		}
 
-		policyGroupInterface := c.HTTP.RawAccessControl[policy].(map[string][]string)
-		log.Info().Msgf("policyGroupInterface: %v", policyGroupInterface)
-		//policyGroup = policyGroupInterface.(PolicyGroup)
-		//c.AccessControl.Repositories[policy] = policyGroup
+		err := viperInstance.UnmarshalKey(fmt.Sprintf("http::accessControl::%s::policies", policy), &policies)
+		if err != nil {
+			return err
+		}
+
+		defaultPolicy := viperInstance.GetStringSlice(fmt.Sprintf("http::accessControl::%s::defaultPolicy", policy))
+		policyGroup.Policies = policies
+		policyGroup.DefaultPolicy = defaultPolicy
+		c.AccessControl.Repositories[policy] = policyGroup
 	}
 
 	return nil

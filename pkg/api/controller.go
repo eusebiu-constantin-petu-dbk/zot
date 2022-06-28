@@ -19,7 +19,7 @@ import (
 	"github.com/gorilla/mux"
 	"zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/api/config"
-	"zotregistry.io/zot/pkg/api/sysconfig"
+	"zotregistry.io/zot/pkg/api/config/manager"
 	ext "zotregistry.io/zot/pkg/extensions"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
@@ -40,7 +40,7 @@ type Controller struct {
 	Audit           *log.Logger
 	Server          *http.Server
 	Metrics         monitoring.MetricServer
-	SysConfigManger *sysconfig.SysConfigManager
+	SysConfigManger *manager.ConfigManager
 	wgShutDown      *goSync.WaitGroup // use it to gracefully shutdown goroutines
 }
 
@@ -148,7 +148,7 @@ func (c *Controller) Run() error {
 
 	c.Metrics = monitoring.NewMetricsServer(enabled, c.Log)
 
-	c.SysConfigManger = sysconfig.NewSysConfigManager(c.Config, c.StoreController, c.wgShutDown, c.Log)
+	c.SysConfigManger = manager.NewSysConfigManager(c.Config, c.StoreController, c.wgShutDown, c.Log)
 
 	if err := c.InitImageStore(c.SysConfigManger.GetContext()); err != nil {
 		return err
