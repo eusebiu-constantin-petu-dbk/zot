@@ -217,7 +217,7 @@ func AuthzHandler(ctlr *Controller) mux.MiddlewareFunc {
 					}
 				}
 			}
-
+			ctlr.Config.
 			if request.Method == http.MethodDelete {
 				action = DELETE
 			}

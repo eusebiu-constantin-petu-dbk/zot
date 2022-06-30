@@ -181,6 +181,7 @@ func NewCliRootCmd() *cobra.Command {
 		Use:   "zli",
 		Short: "`zli`",
 		Long:  "`zli`",
+		
 		Run: func(cmd *cobra.Command, args []string) {
 			if showVersion {
 				log.Info().Str("distribution-spec", distspec.Version).Str("commit", config.Commit).

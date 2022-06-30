@@ -1869,7 +1869,7 @@ func TestAuthorizationWithBasicAuth(t *testing.T) {
 		resp, err := resty.R().Get(baseURL + "/v2/")
 		So(err, ShouldBeNil)
 		So(resp, ShouldNotBeNil)
-		So(resp.StatusCode(), ShouldEqual, 401)
+		So(resp.StatusCode(), ShouldEqual, http.StatusUnauthorized)
 
 		// everybody should have access to /v2/
 		resp, err = resty.R().SetBasicAuth(username, passphrase).

@@ -60,16 +60,15 @@ func (scm *ConfigManager) GetContext() context.Context {
 	return scm.reloadCtx
 }
 
-func (scm *ConfigManager) CleanConfig() {
-	scm.config
-}
+// func (scm *ConfigManager) CleanConfig() {
+// 	scm.config.
+// }
 
 // extension enabled
 func (scm *ConfigManager) Handler(response http.ResponseWriter, request *http.Request) {
 	switch request.Method {
 	case http.MethodGet:
 		scm.log.Info().Msg("scm get")
-
 		config, err := json.Marshal(scm.config)
 		if err != nil {
 			response.WriteHeader(http.StatusInternalServerError)

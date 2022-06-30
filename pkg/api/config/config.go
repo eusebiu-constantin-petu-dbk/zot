@@ -190,6 +190,8 @@ func (c *Config) LoadAccessControlConfig(viperInstance *viper.Viper) error {
 			continue
 		}
 
+
+
 		err := viperInstance.UnmarshalKey(fmt.Sprintf("http::accessControl::%s::policies", policy), &policies)
 		if err != nil {
 			return err
@@ -200,6 +202,8 @@ func (c *Config) LoadAccessControlConfig(viperInstance *viper.Viper) error {
 		policyGroup.DefaultPolicy = defaultPolicy
 		c.AccessControl.Repositories[policy] = policyGroup
 	}
+
+	c.HTTP.RawAccessControl = nil
 
 	return nil
 }
