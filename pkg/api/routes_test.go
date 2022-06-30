@@ -382,7 +382,7 @@ func FuzzTestPutManifest(f *testing.F) {
 			return
 		}
 
-		digest := digest.FromBytes(digestBytes)
+		// digest := digest.FromBytes(digestBytes)
 		port := test.GetFreePort()
 		baseURL := test.GetBaseURL(port)
 		conf := config.New()
@@ -412,10 +412,10 @@ func FuzzTestPutManifest(f *testing.F) {
 			t.Errorf("error occured while generating random blob, %v", err)
 		}
 
-		imgStore.FullBlobUpload(repoName, bytes.NewReader([]byte(cblob)), cdigest.String())
-		imgStore.FullBlobUpload(repoName, bytes.NewReader([]byte(lblob)), ldigest.String())
+		// imgStore.FullBlobUpload(repoName, bytes.NewReader([]byte(cblob)), cdigest.String())
+		// imgStore.FullBlobUpload(repoName, bytes.NewReader([]byte(lblob)), ldigest.String())
 
-		manifest, err := NewRandomImgManifest(f, cdigest, ldigest , cblob, lblob)
+		manifest, err := NewRandomImgManifest(f, cdigest, ldigest, cblob, lblob)
 		if err != nil {
 			return
 		}
@@ -431,7 +431,7 @@ func FuzzTestPutManifest(f *testing.F) {
 		// }
 		// request, _ := http.NewRequestWithContext(context.TODO(), "PUT", baseURL, bytes.NewReader(data))
 		request = mux.SetURLVars(request, map[string]string{
-			"name":      "test",
+			"name": "test",
 		})
 
 		response := httptest.NewRecorder()
@@ -447,7 +447,6 @@ func FuzzTestPutManifest(f *testing.F) {
 		if resp == nil {
 			return
 		}
-		
 	})
 }
 
@@ -456,17 +455,6 @@ func FuzzTestCreateBlobUpload(f *testing.F) {
 	// f.Add([]byte("this is a blob"))
 	f.Add([]byte{'r', 'a', 'n', 'd', 'o', 'm'})
 	f.Fuzz(func(t *testing.T, data []byte) {
-		f := fuzz.NewConsumer(data)
-		repoName := "test"
-		// digestBytes, err := f.GetBytes()
-		// if err != nil {
-		// 	return
-		// }
-		// if len(digestBytes) == 0 {
-		// 	return
-		// }
-
-		// digest := digest.FromBytes(digestBytes)
 		port := test.GetFreePort()
 		baseURL := test.GetBaseURL(port)
 		conf := config.New()
@@ -483,6 +471,39 @@ func FuzzTestCreateBlobUpload(f *testing.F) {
 
 		rthdlr := api.NewRouteHandler(ctlr)
 
+		testFuzzCreateBlobUpload := func(
+			query []struct{ k, v string },
+			headers map[string]string,
+			ism *MockedImageStore,
+			body io.Reader,
+		) int {
+			ctlr.StoreController.DefaultStore = ism
+			request, _ := http.NewRequestWithContext(context.TODO(), "POST", baseURL, nil)
+			request = mux.SetURLVars(request,
+				map[string]string{
+					"name": "test",
+				})
+
+			q := request.URL.Query()
+			for _, qe := range query {
+				q.Add(qe.k, qe.v)
+			}
+			request.URL.RawQuery = q.Encode()
+
+			for k, v := range headers {
+				request.Header.Add(k, v)
+			}
+
+			response := httptest.NewRecorder()
+
+			rthdlr.CreateBlobUpload(response, request)
+
+			resp := response.Result()
+			defer resp.Body.Close()
+
+			return resp.StatusCode
+		}
+
 		ctlr.StoreController.DefaultStore = &MockedImageStore{
 			fullBlobUploadFn: func(repo string, body io.Reader, digest string) (string, int64, error) {
 				return "session", 0, zerr.ErrBadBlobDigest
@@ -496,59 +517,33 @@ func FuzzTestCreateBlobUpload(f *testing.F) {
 			t.Errorf("error occured while generating random blob, %v", err)
 		}
 
-		imgStore.FullBlobUpload(repoName, bytes.NewReader([]byte(cblob)), cdigest.String())
-		imgStore.FullBlobUpload(repoName, bytes.NewReader([]byte(lblob)), ldigest.String())
+		testFuzzCreateBlobUpload([]struct{ k, v string }{
+			{"digest", cdigest.String()},
+		}, map[string]string{
+			"Content-Type": constants.BinaryMediaType,
+		},
+			&MockedImageStore{
+				fullBlobUploadFn: func(repo string, body io.Reader, digest string) (string, int64, error) {
+					return "session", 0, zerr.ErrBadBlobDigest
+				},
+			},
+			bytes.NewReader(cblob))
 
-		// manifest, err := NewRandomImgManifest(f, cdigest, ldigest , cblob, lblob)
-		// if err != nil {
-		// 	return
-		// }
-		// reqBody, err := json.Marshal(manifest)
-		// if err != nil {
-		// 	return
-		// }
-
-		request, _ := http.NewRequestWithContext(context.TODO(), "POST", baseURL, bytes.NewReader(reqBody))
-		request.Header.Add("Content-Type", ispec.MediaTypeImageManifest)
-		// if !json.Valid(data) {
-		// 	return
-		// }
-		// request, _ := http.NewRequestWithContext(context.TODO(), "PUT", baseURL, bytes.NewReader(data))
-		request = mux.SetURLVars(request, map[string]string{
-			"name":      "test",
-		})
-
-		response := httptest.NewRecorder()
-
-		rthdlr.CreateBlobUpload(response, request)
-
-		resp := response.Result()
-		defer resp.Body.Close()
-
-		// if resp == nil || resp.StatusCode == http.StatusOK {
-		// 	return
-		// }
-		if resp == nil {
-			return
-		}
-		
+		testFuzzCreateBlobUpload([]struct{ k, v string }{
+			{"digest", ldigest.String()},
+		}, map[string]string{
+			"Content-Type": constants.BinaryMediaType,
+		},
+			&MockedImageStore{
+				fullBlobUploadFn: func(repo string, body io.Reader, digest string) (string, int64, error) {
+					return "session", 0, zerr.ErrBadBlobDigest
+				},
+			},
+			bytes.NewReader(lblob))
 	})
 }
 
 func NewRandomImgManifest(f *fuzz.ConsumeFuzzer, cdigest, ldigest digest.Digest, cblob, lblob []byte) (*ispec.Manifest, error) {
-	// cdigest, cblob, err := newRandomBlobForFuzz(f)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// layerContent, err := f.GetBytes()
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// layerDigest := digest.FromBytes(layerContent)
-
-	// if err != nil {
-	// 	return nil, err
-	// }
 	annotationsMap := make(map[string]string)
 	key, err := f.GetString()
 	if err != nil {
@@ -559,26 +554,8 @@ func NewRandomImgManifest(f *fuzz.ConsumeFuzzer, cdigest, ldigest digest.Digest,
 		return nil, err
 	}
 	annotationsMap[key] = val
-	// err = f.FuzzMap(&annotationsMap)
-	// if err != nil {
-	// 	// fmt.Printf("error occured while generating fuzzed map, %e \n", err)
-	// 	panic(err)
-	// }
-	// annotations, ok := annotationsReflect.Interface().([]string)
-	// if !ok {
-	// 	panic("type assertion failed to provide []string")
-	// }
-	// aopts := options.AnnotationOptions{Annotations: annotations}
-	// amap, err  := aopts.AnnotationsMap()
-	// if err != nil {
-	// 	return &ispec.Manifest{
-	// 		MediaType: "application/vnd.oci.image.manifest.v1+json",
-	// 	}
-	// }
+
 	schemaVersion := 2
-	// if err != nil {
-	// 	return nil, err
-	// }
 
 	manifest := ispec.Manifest{
 		MediaType: "application/vnd.oci.image.manifest.v1+json",
@@ -612,11 +589,6 @@ func NewRandomImgManifest(f *fuzz.ConsumeFuzzer, cdigest, ldigest digest.Digest,
 // 	return digest.FromBytes(blob), blob, nil
 // }
 func newRandomBlobForFuzz(f []byte) (digest.Digest, []byte, error) {
-	// blob, err := f.GetBytes()
-	// if err != nil {
-	// 	return digest.FromBytes([]byte("0")), nil, err
-	// }
-
 	return digest.FromBytes(f), f, nil
 }
 
