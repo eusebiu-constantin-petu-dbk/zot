@@ -450,6 +450,103 @@ func FuzzTestPutManifest(f *testing.F) {
 	})
 }
 
+func FuzzGetBlobUpload(f *testing.F) {
+	f.Add("test", "1234")
+	f.Add("repo", "test")
+	f.Fuzz(func(t *testing.T, data1 string, data2 string){
+		// f1 := fuzz.NewConsumer([]byte(data1))
+		// f2 := fuzz.NewConsumer([]byte(data2))
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+
+		ctlr := api.NewController(conf)
+
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
+		ctlr.Config.Storage.Commit = true
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		rthdlr := api.NewRouteHandler(ctlr)
+
+		request, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, baseURL, nil)
+		response := httptest.NewRecorder()
+		urlVarName := data1
+		// if err != nil {
+		// 	return
+		// }
+		urlVarSession := data2
+		// if err != nil {
+		// 	return 
+		// }
+		urlVars := map[string]string{
+			"name" : urlVarName,
+			"session_id": urlVarSession,
+		}
+		request = mux.SetURLVars(request, urlVars)
+
+		rthdlr.GetBlobUpload(response, request)
+	})
+}
+
+func FuzzPatchBlobUpload(f *testing.F) {
+	f.Add("test", "1234")
+	f.Add("repo", "test")
+	f.Fuzz(func(t *testing.T, data1 string, data2 string){
+		f1 := fuzz.NewConsumer([]byte(data1))
+		// f2 := fuzz.NewConsumer([]byte(data2))
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+
+		ctlr := api.NewController(conf)
+
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
+		ctlr.Config.Storage.Commit = true
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		rthdlr := api.NewRouteHandler(ctlr)
+
+		reqBody, err := f1.GetBytes()
+		if err != nil {
+			return
+		}
+
+		request, _ := http.NewRequestWithContext(context.Background(), http.MethodPatch, baseURL, bytes.NewReader(reqBody))
+		response := httptest.NewRecorder()
+		
+		headers := map[string]string{
+			"Content-Length": "100",
+			"Content-Range":  "1-100",
+		}
+		for k, v := range headers {
+			request.Header.Add(k, v)
+		}
+		urlVarName := data1
+		// if err != nil {
+		// 	return
+		// }
+		urlVarSession := data2
+		// if err != nil {
+		// 	return 
+		// }
+		urlVars := map[string]string{
+			"name" : urlVarName,
+			"session_id": urlVarSession,
+		}
+		request = mux.SetURLVars(request, urlVars)
+
+		rthdlr.PatchBlobUpload(response, request)
+	})
+}
+
 func FuzzTestCreateBlobUpload(f *testing.F) {
 	// f.Add([]byte("this is a blob"))
 	// f.Add([]byte("this is a blob"))
