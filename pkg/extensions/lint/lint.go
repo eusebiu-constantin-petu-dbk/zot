@@ -1,6 +1,7 @@
 package lint
 
 import (
+	godigest "github.com/opencontainers/go-digest"
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -13,24 +14,40 @@ type Config struct {
 	MandatoryAnnotations *MandatoryAnnotationsConfig
 }
 
-func CheckMandatoryAnnotations(manifest ispec.Manifest, annotationsList []string, lintEnabled bool) bool {
-	if !lintEnabled || len(annotationsList) == 0 {
+type Linter struct {
+	config *Config
+}
+
+func NewLinter(config *Config) Linter {
+	return Linter{
+		config: config,
+	}
+}
+
+func (linter Linter) CheckMandatoryAnnotations(index ispec.Index, manifestDigest godigest.Digest) bool {
+	if linter.config != nil && !*linter.config.Enabled || len(linter.config.MandatoryAnnotations.AnnotationsList) == 0 {
 		return true
 	}
 
-	annotations := manifest.Annotations
+	annotationList := linter.config.MandatoryAnnotations.AnnotationsList
 
-	if len(annotations) == 0 {
-		return false
-	}
+	for _, manifest := range index.Manifests {
+		if manifest.Digest == manifestDigest {
+			annotations := manifest.Annotations
 
-	for i := 0; i < len(annotationsList); i++ {
-		_, found := annotations[annotationsList[i]]
+			if len(annotations) == 0 {
+				return false
+			}
 
-		if !found {
-			return false
+			for i := 0; i < len(annotationList); i++ {
+				_, found := annotations[annotationList[i]]
+
+				if !found {
+					return false
+				}
+			}
 		}
 	}
 
-	return true
+	return false
 }

@@ -22,6 +22,7 @@ import (
 	"gopkg.in/resty.v1"
 	zerr "zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/api/constants"
+	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
 	"zotregistry.io/zot/pkg/test"
@@ -581,7 +582,7 @@ func getLocalContexts(log log.Logger) (*types.SystemContext, *signature.PolicyCo
 	return localCtx, policyContext, nil
 }
 
-func Run(ctx context.Context, cfg Config, annotationsList []string, lintEnabled bool,
+func Run(ctx context.Context, cfg Config, linter lint.Linter,
 	storeController storage.StoreController,
 	wtgrp *goSync.WaitGroup, logger log.Logger,
 ) error {

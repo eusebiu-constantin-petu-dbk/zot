@@ -26,6 +26,7 @@ import (
 	"github.com/opencontainers/umoci/oci/casext"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/rs/zerolog"
+	"github.com/sigstore/cosign/pkg/oci/remote"
 	zerr "zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
@@ -66,6 +67,7 @@ type ImageStoreLocal struct {
 	gcDelay     time.Duration
 	log         zerolog.Logger
 	metrics     monitoring.MetricServer
+	linter      lint.Linter
 }
 
 func (is *ImageStoreLocal) RootDir() string {
@@ -107,7 +109,7 @@ func (sc StoreController) GetImageStore(name string) ImageStore {
 
 // NewImageStore returns a new image store backed by a file storage.
 func NewImageStore(rootDir string, gc bool, gcDelay time.Duration, dedupe, commit bool,
-	log zlog.Logger, metrics monitoring.MetricServer,
+	log zlog.Logger, metrics monitoring.MetricServer, linter lint.Linter,
 ) ImageStore {
 	if _, err := os.Stat(rootDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(rootDir, DefaultDirPerms); err != nil {
@@ -127,6 +129,7 @@ func NewImageStore(rootDir string, gc bool, gcDelay time.Duration, dedupe, commi
 		commit:      commit,
 		log:         log.With().Caller().Logger(),
 		metrics:     metrics,
+		linter:      linter,
 	}
 
 	if dedupe {
@@ -612,18 +615,11 @@ func (is *ImageStoreLocal) PutImageManifest(repo, reference, mediaType string,
 		return "", zerr.ErrRepoBadVersion
 	}
 
-	// check mandatory annotations
 	var manifest ispec.Manifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
 		is.log.Error().Err(err).Str("dir", dir).Msg("invalid JSON")
 
 		return "", err
-	}
-
-	pass := lint.CheckMandatoryAnnotations(manifest, mandatoryAnnotations, lintEnabled)
-
-	if !pass {
-		return "", zerr.ErrMissingAnnotations
 	}
 
 	updateIndex := true
@@ -698,6 +694,18 @@ func (is *ImageStoreLocal) PutImageManifest(repo, reference, mediaType string,
 		is.log.Error().Err(err).Str("file", file).Msg("unable to marshal JSON")
 
 		return "", err
+	}
+
+	// apply linter only on images, not signatures
+	if mediaType == ispec.MediaTypeImageManifest &&
+		// check that image manifest is not cosign signature
+		!strings.HasPrefix(reference, "sha256-") &&
+		!strings.HasSuffix(reference, remote.SignatureTagSuffix) {
+		// lint new index with new manifest before writing to disk
+		pass := is.linter.CheckMandatoryAnnotations(index, mDigest)
+		if !pass {
+			return "", zerr.ErrMissingAnnotations
+		}
 	}
 
 	err = is.writeFile(file, buf)

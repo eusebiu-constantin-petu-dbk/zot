@@ -5086,67 +5086,90 @@ func TestVerifyMandatoryAnnotations(t *testing.T) {
 	defer stopServer(ctlr)
 	test.WaitTillServerReady(baseURL)
 
-	Convey("Mandatory annotations disabled", t, func() {
-		enabled := false
-		ctlr.Config.Extensions.Lint.Enabled = &enabled
-		ctlr.Config.Extensions.Lint.MandatoryAnnotations = &lint.MandatoryAnnotationsConfig{}
+	// Convey("Mandatory annotations disabled", t, func() {
+	// 	enabled := false
+	// 	ctlr.Config.Extensions.Lint.Enabled = &enabled
+	// 	ctlr.Config.Extensions.Lint.MandatoryAnnotations = &lint.MandatoryAnnotationsConfig{}
 
-		resp, err := resty.R().SetBasicAuth(username, passphrase).
-			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
-		So(err, ShouldBeNil)
-		So(resp, ShouldNotBeNil)
-		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+	// 	resp, err := resty.R().SetBasicAuth(username, passphrase).
+	// 		Get(baseURL + "/v2/zot-test/manifests/0.0.1")
+	// 	So(err, ShouldBeNil)
+	// 	So(resp, ShouldNotBeNil)
+	// 	So(resp.StatusCode(), ShouldEqual, http.StatusOK)
 
-		manifestBlob := resp.Body()
-		var manifest ispec.Manifest
-		err = json.Unmarshal(manifestBlob, &manifest)
-		So(err, ShouldBeNil)
+	// 	manifestBlob := resp.Body()
+	// 	var manifest ispec.Manifest
+	// 	err = json.Unmarshal(manifestBlob, &manifest)
+	// 	So(err, ShouldBeNil)
 
-		manifest.SchemaVersion = 2
-		content, err := json.Marshal(manifest)
-		So(err, ShouldBeNil)
-		digest := godigest.FromBytes(content)
+	// 	manifest.SchemaVersion = 2
+	// 	content, err := json.Marshal(manifest)
+	// 	So(err, ShouldBeNil)
+	// 	digest := godigest.FromBytes(content)
 
-		So(digest, ShouldNotBeNil)
-		resp, err = resty.R().SetHeader("Content-Type", "application/vnd.oci.image.manifest.v1+json").
-			SetBody(content).Put(baseURL + "/v2/zot-test/manifests/0.0.1")
-		So(err, ShouldBeNil)
-		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
-	})
+	// 	So(digest, ShouldNotBeNil)
+	// 	resp, err = resty.R().SetHeader("Content-Type", "application/vnd.oci.image.manifest.v1+json").
+	// 		SetBody(content).Put(baseURL + "/v2/zot-test/manifests/0.0.1")
+	// 	So(err, ShouldBeNil)
+	// 	So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+	// })
 
-	Convey("Mandatory annotations enabled, but no list in config", t, func() {
-		enabled := true
-		ctlr.Config.Extensions.Lint.Enabled = &enabled
+	// Convey("Mandatory annotations enabled, but no list in config", t, func() {
+	// 	enabled := true
+	// 	ctlr.Config.Extensions.Lint.Enabled = &enabled
 
-		resp, err := resty.R().SetBasicAuth(username, passphrase).
-			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
-		So(err, ShouldBeNil)
-		So(resp, ShouldNotBeNil)
-		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+	// 	resp, err := resty.R().SetBasicAuth(username, passphrase).
+	// 		Get(baseURL + "/v2/zot-test/manifests/0.0.1")
+	// 	So(err, ShouldBeNil)
+	// 	So(resp, ShouldNotBeNil)
+	// 	So(resp.StatusCode(), ShouldEqual, http.StatusOK)
 
-		manifestBlob := resp.Body()
-		var manifest ispec.Manifest
-		err = json.Unmarshal(manifestBlob, &manifest)
-		So(err, ShouldBeNil)
+	// 	manifestBlob := resp.Body()
+	// 	var manifest ispec.Manifest
+	// 	err = json.Unmarshal(manifestBlob, &manifest)
+	// 	So(err, ShouldBeNil)
 
-		manifest.SchemaVersion = 2
-		content, err := json.Marshal(manifest)
-		So(err, ShouldBeNil)
-		digest := godigest.FromBytes(content)
+	// 	manifest.SchemaVersion = 2
+	// 	content, err := json.Marshal(manifest)
+	// 	So(err, ShouldBeNil)
+	// 	digest := godigest.FromBytes(content)
 
-		So(digest, ShouldNotBeNil)
-		resp, err = resty.R().SetHeader("Content-Type", "application/vnd.oci.image.manifest.v1+json").
-			SetBody(content).Put(baseURL + "/v2/zot-test/manifests/0.0.1")
-		So(err, ShouldBeNil)
-		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
-	})
+	// 	So(digest, ShouldNotBeNil)
+	// 	resp, err = resty.R().SetHeader("Content-Type", "application/vnd.oci.image.manifest.v1+json").
+	// 		SetBody(content).Put(baseURL + "/v2/zot-test/manifests/0.0.1")
+	// 	So(err, ShouldBeNil)
+	// 	So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+	// })
 
 	Convey("Mandatory annotations verification passing", t, func() {
-		enabled := true
-		ctlr.Config.Extensions.Lint.Enabled = &enabled
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
 
-		ctlr.Config.Extensions.Lint.MandatoryAnnotations.
+		conf := config.New()
+		conf.HTTP.Port = port
+		enabled := true
+		conf.Extensions = &extconf.ExtensionConfig{}
+		conf.Extensions.Lint = &lint.Config{}
+
+		conf.Extensions.Lint.Enabled = &enabled
+
+		conf.Extensions.Lint.MandatoryAnnotations = &lint.MandatoryAnnotationsConfig{}
+		conf.Extensions.Lint.MandatoryAnnotations.
 			AnnotationsList = []string{"annotation1", "annotation2", "annotation3"}
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+
+		err := test.CopyFiles("../../test/data", dir)
+		if err != nil {
+			panic(err)
+		}
+
+		ctlr.Config.Storage.RootDirectory = dir
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
 
 		resp, err := resty.R().SetBasicAuth(username, passphrase).
 			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
@@ -5247,100 +5270,6 @@ func TestVerifyMandatoryAnnotations(t *testing.T) {
 			SetBody(content).Put(baseURL + "/v2/zot-test/manifests/0.0.1")
 		So(err, ShouldBeNil)
 		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
-	})
-
-	Convey("Mandatory annotations disabled", t, func() {
-		resp, err := resty.R().SetBasicAuth(username, passphrase).
-			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
-		So(err, ShouldBeNil)
-		So(resp, ShouldNotBeNil)
-		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
-
-		manifestBlob := resp.Body()
-		var manifest ispec.Manifest
-		err = json.Unmarshal(manifestBlob, &manifest)
-		So(err, ShouldBeNil)
-
-		pass := lint.CheckMandatoryAnnotations(manifest, []string{}, false)
-		So(pass, ShouldBeTrue)
-	})
-
-	Convey("Mandatory annotations enabled, but no list in config", t, func() {
-		resp, err := resty.R().SetBasicAuth(username, passphrase).
-			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
-		So(err, ShouldBeNil)
-		So(resp, ShouldNotBeNil)
-		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
-
-		manifestBlob := resp.Body()
-		var manifest ispec.Manifest
-		err = json.Unmarshal(manifestBlob, &manifest)
-		So(err, ShouldBeNil)
-
-		pass := lint.CheckMandatoryAnnotations(manifest, []string{}, true)
-		So(pass, ShouldBeTrue)
-	})
-
-	Convey("Mandatory annotations verification passing", t, func() {
-		resp, err := resty.R().SetBasicAuth(username, passphrase).
-			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
-		So(err, ShouldBeNil)
-		So(resp, ShouldNotBeNil)
-		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
-
-		manifestBlob := resp.Body()
-		var manifest ispec.Manifest
-		err = json.Unmarshal(manifestBlob, &manifest)
-		So(err, ShouldBeNil)
-
-		manifest.Annotations = make(map[string]string)
-		manifest.Annotations["annotation1"] = "test"
-		manifest.Annotations["annotation2"] = "test2"
-		manifest.Annotations["annotation3"] = "test string"
-
-		pass := lint.CheckMandatoryAnnotations(manifest, []string{"annotation1", "annotation2", "annotation3"}, true)
-		So(pass, ShouldBeTrue)
-	})
-
-	Convey("Mandatory annotations incomplete in manifest", t, func() {
-		resp, err := resty.R().SetBasicAuth(username, passphrase).
-			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
-		So(err, ShouldBeNil)
-		So(resp, ShouldNotBeNil)
-		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
-
-		manifestBlob := resp.Body()
-		var manifest ispec.Manifest
-		err = json.Unmarshal(manifestBlob, &manifest)
-		So(err, ShouldBeNil)
-
-		manifest.Annotations = make(map[string]string)
-		manifest.Annotations["annotation1"] = "test1"
-		manifest.Annotations["annotation3"] = "test3"
-
-		pass := lint.CheckMandatoryAnnotations(manifest, []string{"annotation1", "annotation2", "annotation3"}, true)
-		So(pass, ShouldBeFalse)
-	})
-
-	Convey("Mandatory annotations verification passing - more annotations than the mandatory list", t, func() {
-		resp, err := resty.R().SetBasicAuth(username, passphrase).
-			Get(baseURL + "/v2/zot-test/manifests/0.0.1")
-		So(err, ShouldBeNil)
-		So(resp, ShouldNotBeNil)
-		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
-
-		manifestBlob := resp.Body()
-		var manifest ispec.Manifest
-		err = json.Unmarshal(manifestBlob, &manifest)
-		So(err, ShouldBeNil)
-
-		manifest.Annotations = make(map[string]string)
-		manifest.Annotations["annotation1"] = "test1"
-		manifest.Annotations["annotation2"] = "test2"
-		manifest.Annotations["annotation3"] = "test3"
-
-		pass := lint.CheckMandatoryAnnotations(manifest, []string{"annotation1", "annotation3"}, true)
-		So(pass, ShouldBeTrue)
 	})
 }
 
