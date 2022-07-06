@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	_ "crypto/sha256"
 	"encoding/json"
+	goErrors "errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -172,30 +173,39 @@ func FuzzNewBlobUpload(f *testing.F) {
 	f.Fuzz(func(t *testing.T, a string) {
 		dir := t.TempDir()
 		defer os.RemoveAll(dir)
-		fmt.Printf("Input argument is %s", a)
+		t.Logf("Input argument is %s", a)
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
 		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
 
+		// _, err := imgStore.NewBlobUpload(a)
+		// if err != nil {
+		// 	t.Error(err)
+		// }
+
 		_, err := imgStore.NewBlobUpload(a)
 		if err != nil {
-			return
+			if goErrors.Is(err, errors.ErrFuzz) {
+				return
+			}
+
+			t.Error(err)
 		}
+
 	})
 }
 
 func FuzzGetBlobUpload(f *testing.F) {
 	f.Add("test", "invalid")
-	
-	f.Fuzz(func(t *testing.T, data1 string, data2 string){
+
+	f.Fuzz(func(t *testing.T, data1 string, data2 string) {
 		dir := t.TempDir()
 		defer os.RemoveAll(dir)
 		log := log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, log)
 		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
 
-		_, _  =imgStore.GetBlobUpload(data1, data2)
-
+		_, _ = imgStore.GetBlobUpload(data1, data2)
 
 	})
 }
@@ -226,7 +236,7 @@ func FuzzTestPutGetImageManifest(f *testing.F) {
 		imgStore.FullBlobUpload(repoName, bytes.NewReader([]byte(cblob)), cdigest.String())
 		imgStore.FullBlobUpload(repoName, bytes.NewReader([]byte(lblob)), ldigest.String())
 
-		manifest, err := NewRandomImgManifest(f, cdigest, ldigest , cblob, lblob)
+		manifest, err := NewRandomImgManifest(f, cdigest, ldigest, cblob, lblob)
 		if err != nil {
 			return
 		}
@@ -234,7 +244,7 @@ func FuzzTestPutGetImageManifest(f *testing.F) {
 		if err != nil {
 			return
 		}
-		manifestBuf,err := json.Marshal(manifest)
+		manifestBuf, err := json.Marshal(manifest)
 		if err != nil {
 			t.Errorf("Error %v occured while marshaling manifest", err)
 		}
@@ -255,8 +265,8 @@ func FuzzTestDeleteImageManifest(f *testing.F) {
 	f.Add([]byte("this is a blob"))
 	f.Add([]byte("this is yet another blob"))
 	f.Add([]byte("one 2 three, it's coming for me"))
-	
-	f.Fuzz(func(t *testing.T, data []byte)  {
+
+	f.Fuzz(func(t *testing.T, data []byte) {
 		//f := fuzz.NewConsumer(data)
 
 		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
@@ -268,19 +278,19 @@ func FuzzTestDeleteImageManifest(f *testing.F) {
 
 		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, *log, metrics)
 
-		digest, _, err :=newRandomBlobForFuzz(data)
+		digest, _, err := newRandomBlobForFuzz(data)
 		if err != nil {
 			return
 		}
 		_ = imgStore.DeleteImageManifest(repoName, digest.String())
-				
+
 	})
 
 }
 
 func FuzzDirExists(f *testing.F) {
 	f.Add("test/data")
-	f.Fuzz(func(t * testing.T, data string){
+	f.Fuzz(func(t *testing.T, data string) {
 		_ = storage.DirExists(data)
 	})
 }
@@ -289,7 +299,7 @@ func FuzzInitRepo(f *testing.F) {
 	f.Add("test")
 	f.Add("code42")
 	f.Add("RaNdOm")
-	f.Fuzz(func(t *testing.T, data string){
+	f.Fuzz(func(t *testing.T, data string) {
 		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, *log)
 
@@ -305,7 +315,7 @@ func FuzzValidateRepo(f *testing.F) {
 	f.Add("test")
 	f.Add("code42")
 	f.Add("RaNdOm")
-	f.Fuzz(func (t *testing.T, data string)  {
+	f.Fuzz(func(t *testing.T, data string) {
 		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, *log)
 
@@ -313,7 +323,7 @@ func FuzzValidateRepo(f *testing.F) {
 		defer os.RemoveAll(dir)
 
 		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, *log, metrics)
-		_,_ = imgStore.ValidateRepo(data)
+		_, _ = imgStore.ValidateRepo(data)
 	})
 }
 
@@ -321,7 +331,7 @@ func FuzzGetImageTags(f *testing.F) {
 	f.Add("1.0")
 	f.Add("0.3")
 	f.Add("5")
-	f.Fuzz(func (t *testing.T, data string)  {
+	f.Fuzz(func(t *testing.T, data string) {
 		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, *log)
 
@@ -329,7 +339,7 @@ func FuzzGetImageTags(f *testing.F) {
 		defer os.RemoveAll(dir)
 
 		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, *log, metrics)
-		_,_ = imgStore.GetImageTags(data)
+		_, _ = imgStore.GetImageTags(data)
 	})
 }
 
@@ -337,7 +347,7 @@ func FuzzBlobUploadPath(f *testing.F) {
 	f.Add("test")
 	f.Add("code42")
 	f.Add("RaNdOm")
-	f.Fuzz(func (t *testing.T, data string)  {
+	f.Fuzz(func(t *testing.T, data string) {
 		f := fuzz.NewConsumer([]byte(data))
 		log := &log.Logger{Logger: zerolog.New(os.Stdout)}
 		metrics := monitoring.NewMetricsServer(false, *log)
@@ -354,7 +364,6 @@ func FuzzBlobUploadPath(f *testing.F) {
 		if err != nil {
 			return
 		}
-
 
 		_ = imgStore.BlobUploadPath(repo, uuid)
 	})

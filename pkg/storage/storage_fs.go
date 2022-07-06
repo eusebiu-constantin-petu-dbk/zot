@@ -186,9 +186,23 @@ func (is *ImageStoreFS) Unlock(lockStart *time.Time) {
 }
 
 func (is *ImageStoreFS) initRepo(name string) error {
+
 	repoDir := path.Join(is.rootDir, name)
+	if !utf8.ValidString(name) {
+		err := errors.New("input is not valid UTF-8")
+		is.log.Error().Err(err).Msg("input is not valid UTF-8")
+		return zerr.ErrFuzz
+	}
+
+	_, err := os.Stat(name)
+	if err != nil {
+		if e, ok := err.(*fs.PathError); ok && e.Err == syscall.ENAMETOOLONG || e.Err == syscall.EINVAL {
+			return zerr.ErrFuzz
+		}
+	}
+
 	// create "blobs" subdir
-	err := ensureDir(path.Join(repoDir, "blobs"), is.log)
+	err = ensureDir(path.Join(repoDir, "blobs"), is.log)
 	if err != nil {
 		is.log.Error().Err(err).Msg("error creating blobs subdir")
 
@@ -829,12 +843,6 @@ func (is *ImageStoreFS) BlobUploadPath(repo, uuid string) string {
 
 // NewBlobUpload returns the unique ID for an upload in progress.
 func (is *ImageStoreFS) NewBlobUpload(repo string) (string, error) {
-	if !utf8.ValidString(repo) || repo == "\x00" {
-		err := errors.New("input is not valid UTF-8")
-		is.log.Error().Err(err).Msg("input is not valid UTF-8")
-		return "", err
-	}
-
 	if err := is.InitRepo(repo); err != nil {
 		is.log.Error().Err(err).Msg("error initializing repo")
 
@@ -849,11 +857,11 @@ func (is *ImageStoreFS) NewBlobUpload(repo string) (string, error) {
 	uid := uuid.String()
 
 	blobUploadPath := is.BlobUploadPath(repo, uid)
-
 	file, err := os.OpenFile(blobUploadPath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, DefaultFilePerms)
 	if err != nil {
-		return "", zerr.ErrRepoNotFound
+		return "", err
 	}
+
 	defer file.Close()
 
 	return uid, nil
@@ -1647,10 +1655,10 @@ func DirExists(d string) bool {
 	if !utf8.ValidString(d) {
 		return false
 	}
-	
+
 	fi, err := os.Stat(d)
 	if err != nil {
-		if e, ok := err.(*fs.PathError); ok && e.Err == syscall.ENAMETOOLONG || e.Err == syscall.EINVAL { 
+		if e, ok := err.(*fs.PathError); ok && e.Err == syscall.ENAMETOOLONG || e.Err == syscall.EINVAL {
 			return false
 		}
 	}
