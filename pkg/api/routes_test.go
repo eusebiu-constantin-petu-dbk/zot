@@ -450,10 +450,52 @@ func FuzzTestPutManifest(f *testing.F) {
 	})
 }
 
+func FuzzDeleteBlob(f *testing.F) {
+	f.Add("FuzzErrBadBlobDigest", "sha256:7b8437f04f83f084b7ed68ad8c4a4947e12fc4e1b006b38129bac89114ec3621")
+	
+	f.Fuzz(func(t *testing.T, data1 string, data2 string) {
+		port := test.GetFreePort()
+		baseURL := test.GetBaseURL(port)
+		conf := config.New()
+		conf.HTTP.Port = port
+
+		ctlr := api.NewController(conf)
+
+		ctlr.Config.Storage.RootDirectory = t.TempDir()
+		ctlr.Config.Storage.Commit = true
+
+		ctlr.StoreController.DefaultStore = &MockedImageStore{
+			deleteBlobFn: func(repo string, digest string) error {
+				return zerr.ErrBadBlobDigest
+			},
+		}
+
+		go startServer(ctlr)
+		defer stopServer(ctlr)
+		test.WaitTillServerReady(baseURL)
+
+		rthdlr := api.NewRouteHandler(ctlr)
+
+		request, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, baseURL, nil)
+		if err != nil {
+			return
+		}
+		urlVars := map[string]string{
+			"name":   data1,
+			"digest": data2,
+		}
+
+		request = mux.SetURLVars(request, urlVars)
+		response := httptest.NewRecorder()
+
+		rthdlr.DeleteBlob(response, request)
+	})
+}
+
 func FuzzGetBlobUpload(f *testing.F) {
 	f.Add("test", "1234")
 	f.Add("repo", "test")
-	f.Fuzz(func(t *testing.T, data1 string, data2 string){
+	f.Fuzz(func(t *testing.T, data1 string, data2 string) {
 		// f1 := fuzz.NewConsumer([]byte(data1))
 		// f2 := fuzz.NewConsumer([]byte(data2))
 		port := test.GetFreePort()
@@ -480,10 +522,10 @@ func FuzzGetBlobUpload(f *testing.F) {
 		// }
 		urlVarSession := data2
 		// if err != nil {
-		// 	return 
+		// 	return
 		// }
 		urlVars := map[string]string{
-			"name" : urlVarName,
+			"name":       urlVarName,
 			"session_id": urlVarSession,
 		}
 		request = mux.SetURLVars(request, urlVars)
@@ -495,7 +537,7 @@ func FuzzGetBlobUpload(f *testing.F) {
 func FuzzPatchBlobUpload(f *testing.F) {
 	f.Add("test", "1234")
 	f.Add("repo", "test")
-	f.Fuzz(func(t *testing.T, data1 string, data2 string){
+	f.Fuzz(func(t *testing.T, data1 string, data2 string) {
 		f1 := fuzz.NewConsumer([]byte(data1))
 		// f2 := fuzz.NewConsumer([]byte(data2))
 		port := test.GetFreePort()
@@ -521,7 +563,7 @@ func FuzzPatchBlobUpload(f *testing.F) {
 
 		request, _ := http.NewRequestWithContext(context.Background(), http.MethodPatch, baseURL, bytes.NewReader(reqBody))
 		response := httptest.NewRecorder()
-		
+
 		headers := map[string]string{
 			"Content-Length": "100",
 			"Content-Range":  "1-100",
@@ -535,10 +577,10 @@ func FuzzPatchBlobUpload(f *testing.F) {
 		// }
 		urlVarSession := data2
 		// if err != nil {
-		// 	return 
+		// 	return
 		// }
 		urlVars := map[string]string{
-			"name" : urlVarName,
+			"name":       urlVarName,
 			"session_id": urlVarSession,
 		}
 		request = mux.SetURLVars(request, urlVars)

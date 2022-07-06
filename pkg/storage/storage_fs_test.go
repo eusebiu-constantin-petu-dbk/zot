@@ -166,7 +166,7 @@ func TestStorageFSAPIs(t *testing.T) {
 	})
 }
 
-func FuzzNewBlobUploadPath(f *testing.F) {
+func FuzzNewBlobUpload(f *testing.F) {
 	f.Add("test")
 	f.Add("test2")
 	f.Fuzz(func(t *testing.T, a string) {
@@ -181,6 +181,22 @@ func FuzzNewBlobUploadPath(f *testing.F) {
 		if err != nil {
 			return
 		}
+	})
+}
+
+func FuzzGetBlobUpload(f *testing.F) {
+	f.Add("test", "invalid")
+	
+	f.Fuzz(func(t *testing.T, data1 string, data2 string){
+		dir := t.TempDir()
+		defer os.RemoveAll(dir)
+		log := log.Logger{Logger: zerolog.New(os.Stdout)}
+		metrics := monitoring.NewMetricsServer(false, log)
+		imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay, true, true, log, metrics)
+
+		_, _  =imgStore.GetBlobUpload(data1, data2)
+
+
 	})
 }
 
