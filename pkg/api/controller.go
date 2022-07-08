@@ -19,9 +19,9 @@ import (
 	"github.com/gorilla/mux"
 	"zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/api/config"
+	"zotregistry.io/zot/pkg/extensions"
 	ext "zotregistry.io/zot/pkg/extensions"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
-	"zotregistry.io/zot/pkg/extensions/lint"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
@@ -219,12 +219,7 @@ func (c *Controller) Run(reloadCtx context.Context) error {
 func (c *Controller) InitImageStore(reloadCtx context.Context) error {
 	c.StoreController = storage.StoreController{}
 
-	var linter lint.Linter
-	if c.Config.Extensions == nil {
-		linter = lint.NewLinter(nil, c.Log)
-	} else {
-		linter = lint.NewLinter(c.Config.Extensions.Lint, c.Log)
-	}
+	linter := extensions.GetLinter(c.Config, c.Log)
 
 	if c.Config.Storage.RootDirectory != "" {
 		// no need to validate hard links work on s3

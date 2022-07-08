@@ -53,7 +53,7 @@ type ObjectStorage struct {
 	metrics          monitoring.MetricServer
 	cache            *storage.Cache
 	dedupe           bool
-	linter           lint.Linter
+	linter           *lint.Linter
 }
 
 func (is *ObjectStorage) RootDir() string {
@@ -71,7 +71,7 @@ func (is *ObjectStorage) DirExists(d string) bool {
 // NewObjectStorage returns a new image store backed by cloud storages.
 // see https://github.com/docker/docker.github.io/tree/master/registry/storage-drivers
 func NewImageStore(rootDir string, cacheDir string, gc bool, gcDelay time.Duration, dedupe, commit bool,
-	log zlog.Logger, metrics monitoring.MetricServer, linter lint.Linter,
+	log zlog.Logger, metrics monitoring.MetricServer, linter *lint.Linter,
 	store driver.StorageDriver,
 ) storage.ImageStore {
 	imgStore := &ObjectStorage{
@@ -555,14 +555,16 @@ func (is *ObjectStorage) PutImageManifest(repo, reference, mediaType string,
 	}
 
 	// apply linter only on images, not signatures
-	if mediaType == ispec.MediaTypeImageManifest &&
-		// check that image manifest is not cosign signature
-		!strings.HasPrefix(reference, "sha256-") &&
-		!strings.HasSuffix(reference, remote.SignatureTagSuffix) {
-		// lint new index with new manifest before writing to disk
-		pass := is.linter.CheckMandatoryAnnotations(is.rootDir, repo, index, mDigest)
-		if !pass {
-			return "", zerr.ErrImageLintAnnotations
+	if is.linter != nil {
+		if mediaType == ispec.MediaTypeImageManifest &&
+			// check that image manifest is not cosign signature
+			!strings.HasPrefix(reference, "sha256-") &&
+			!strings.HasSuffix(reference, remote.SignatureTagSuffix) {
+			// lint new index with new manifest before writing to disk
+			pass := is.linter.CheckMandatoryAnnotations(is.rootDir, repo, index, mDigest)
+			if !pass {
+				return "", zerr.ErrImageLintAnnotations
+			}
 		}
 	}
 

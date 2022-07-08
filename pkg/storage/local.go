@@ -67,7 +67,7 @@ type ImageStoreLocal struct {
 	gcDelay     time.Duration
 	log         zerolog.Logger
 	metrics     monitoring.MetricServer
-	linter      lint.Linter
+	linter      *lint.Linter
 }
 
 func (is *ImageStoreLocal) RootDir() string {
@@ -109,7 +109,7 @@ func (sc StoreController) GetImageStore(name string) ImageStore {
 
 // NewImageStore returns a new image store backed by a file storage.
 func NewImageStore(rootDir string, gc bool, gcDelay time.Duration, dedupe, commit bool,
-	log zlog.Logger, metrics monitoring.MetricServer, linter lint.Linter,
+	log zlog.Logger, metrics monitoring.MetricServer, linter *lint.Linter,
 ) ImageStore {
 	if _, err := os.Stat(rootDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(rootDir, DefaultDirPerms); err != nil {
@@ -678,14 +678,16 @@ func (is *ImageStoreLocal) PutImageManifest(repo, reference, mediaType string,
 	}
 
 	// apply linter only on images, not signatures
-	if mediaType == ispec.MediaTypeImageManifest &&
-		// check that image manifest is not cosign signature
-		!strings.HasPrefix(reference, "sha256-") &&
-		!strings.HasSuffix(reference, remote.SignatureTagSuffix) {
-		// lint new index with new manifest before writing to disk
-		pass := is.linter.CheckMandatoryAnnotations(is.rootDir, repo, index, mDigest)
-		if !pass {
-			return "", zerr.ErrImageLintAnnotations
+	if is.linter != nil {
+		if mediaType == ispec.MediaTypeImageManifest &&
+			// check that image manifest is not cosign signature
+			!strings.HasPrefix(reference, "sha256-") &&
+			!strings.HasSuffix(reference, remote.SignatureTagSuffix) {
+			// lint new index with new manifest before writing to disk
+			pass := is.linter.CheckMandatoryAnnotations(is.rootDir, repo, index, mDigest)
+			if !pass {
+				return "", zerr.ErrImageLintAnnotations
+			}
 		}
 	}
 

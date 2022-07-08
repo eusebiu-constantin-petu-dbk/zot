@@ -1,3 +1,6 @@
+//go:build lint
+// +build lint
+
 package lint
 
 import (
@@ -24,14 +27,14 @@ type Linter struct {
 	log    log.Logger
 }
 
-func NewLinter(config *Config, log log.Logger) Linter {
-	return Linter{
+func NewLinter(config *Config, log log.Logger) *Linter {
+	return &Linter{
 		config: config,
 		log:    log,
 	}
 }
 
-func (linter Linter) CheckMandatoryAnnotations(rootDir string, repo string,
+func (linter *Linter) CheckMandatoryAnnotations(rootDir string, repo string,
 	index ispec.Index, manifestDigest godigest.Digest,
 ) bool {
 	if linter.config == nil {
