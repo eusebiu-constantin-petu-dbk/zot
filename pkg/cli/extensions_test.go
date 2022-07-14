@@ -99,8 +99,6 @@ func TestServeExtensions(t *testing.T) {
 			So(err, ShouldBeNil)
 		}()
 
-		cli.
-
 		WaitTillServerReady(baseURL)
 		data, err := os.ReadFile(logFile.Name())
 		So(err, ShouldBeNil)

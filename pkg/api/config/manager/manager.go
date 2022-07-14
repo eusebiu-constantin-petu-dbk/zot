@@ -60,10 +60,6 @@ func (scm *ConfigManager) GetContext() context.Context {
 	return scm.reloadCtx
 }
 
-// func (scm *ConfigManager) CleanConfig() {
-// 	scm.config.
-// }
-
 // extension enabled
 func (scm *ConfigManager) Handler(response http.ResponseWriter, request *http.Request) {
 	switch request.Method {
