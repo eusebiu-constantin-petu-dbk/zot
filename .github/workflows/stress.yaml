@@ -1,5 +1,9 @@
 name: "Stress test"
 on:
+  push:
+    branches:
+      - main
+      - stress_test
   pull_request:
     branches: [main]
 
