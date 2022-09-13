@@ -413,7 +413,6 @@ func TestNegativeCasesObjectsStorage(t *testing.T) {
 
 	Convey("Invalid validate repo", t, func(c C) {
 		So(imgStore, ShouldNotBeNil)
-
 		So(imgStore.InitRepo(testImage), ShouldBeNil)
 		So(storeDriver.Delete(context.Background(), path.Join(testDir, testImage, "index.json")), ShouldBeNil)
 		_, err = imgStore.ValidateRepo(testImage)

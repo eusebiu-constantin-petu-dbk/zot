@@ -5,7 +5,6 @@ import (
 	"context"
 	_ "crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -29,7 +28,6 @@ import (
 	"zotregistry.io/zot/pkg/storage"
 	"zotregistry.io/zot/pkg/storage/s3"
 	"zotregistry.io/zot/pkg/test"
-	"zotregistry.io/zot/pkg/test/mocks"
 )
 
 func cleanupStorage(store driver.StorageDriver, name string) {
@@ -118,11 +116,17 @@ func TestStorageAPIs(t *testing.T) {
 				defer cleanupStorage(store, testDir)
 			} else {
 				dir := t.TempDir()
-
+				storageDriverParams := map[string]interface{}{
+					"rootDir": dir,
+				}
+				store, err := factory.Create("filesystem", storageDriverParams)
+				if err != nil {
+					panic(err)
+				}
 				log := log.Logger{Logger: zerolog.New(os.Stdout)}
 				metrics := monitoring.NewMetricsServer(false, log)
 				imgStore = storage.NewImageStore(dir, true, storage.DefaultGCDelay, true,
-					true, log, metrics, nil)
+					true, log, metrics, nil, store)
 			}
 
 			Convey("Repo layout", t, func(c C) {
@@ -678,190 +682,196 @@ func TestStorageAPIs(t *testing.T) {
 	}
 }
 
-func TestMandatoryAnnotations(t *testing.T) {
-	for _, testcase := range testCases {
-		testcase := testcase
-		t.Run(testcase.testCaseName, func(t *testing.T) {
-			var imgStore storage.ImageStore
-			var testDir, tdir string
-			var store driver.StorageDriver
+// func TestMandatoryAnnotations(t *testing.T) {
+// 	for _, testcase := range testCases {
+// 		testcase := testcase
+// 		t.Run(testcase.testCaseName, func(t *testing.T) {
+// 			var imgStore storage.ImageStore
+// 			var testDir, tdir string
+// 			var store driver.StorageDriver
 
-			log := log.Logger{Logger: zerolog.New(os.Stdout)}
-			metrics := monitoring.NewMetricsServer(false, log)
+// 			log := log.Logger{Logger: zerolog.New(os.Stdout)}
+// 			metrics := monitoring.NewMetricsServer(false, log)
 
-			if testcase.storageType == "s3" {
-				skipIt(t)
+// 			if testcase.storageType == "s3" {
+// 				skipIt(t)
 
-				uuid, err := guuid.NewV4()
-				if err != nil {
-					panic(err)
-				}
+// 				uuid, err := guuid.NewV4()
+// 				if err != nil {
+// 					panic(err)
+// 				}
 
-				testDir = path.Join("/oci-repo-test", uuid.String())
-				tdir = t.TempDir()
+// 				testDir = path.Join("/oci-repo-test", uuid.String())
+// 				tdir = t.TempDir()
 
-				store, _, _ = createObjectsStore(testDir, tdir)
-				imgStore = s3.NewImageStore(testDir, tdir, false, 1, false, false, log, metrics,
-					&mocks.MockedLint{
-						LintFn: func(repo string, manifestDigest godigest.Digest, imageStore storage.ImageStore) (bool, error) {
-							return false, nil
-						},
-					}, store)
+// 				store, _, _ = createObjectsStore(testDir, tdir)
+// 				imgStore = s3.NewImageStore(testDir, tdir, false, 1, false, false, log, metrics,
+// 					&mocks.MockedLint{
+// 						LintFn: func(repo string, manifestDigest godigest.Digest, imageStore storage.ImageStore) (bool, error) {
+// 							return false, nil
+// 						},
+// 					}, store)
 
-				defer cleanupStorage(store, testDir)
-			} else {
-				tdir = t.TempDir()
+// 				defer cleanupStorage(store, testDir)
+// 			} else {
+// 				tdir = t.TempDir()
+// 				storageDriverParams := map[string]interface{}{
+// 					"rootDir": tdir,
+// 				}
+// 				store, err := factory.Create("filesystem", storageDriverParams)
+// 				if err != nil {
+// 					panic(err)
+// 				}
+// 				imgStore = storage.NewImageStore(tdir, true, storage.DefaultGCDelay, true,
+// 					true, log, metrics, &mocks.MockedLint{
+// 						LintFn: func(repo string, manifestDigest godigest.Digest, imageStore storage.ImageStore) (bool, error) {
+// 							return false, nil
+// 						},
+// 					}, store)
+// 			}
 
-				imgStore = storage.NewImageStore(tdir, true, storage.DefaultGCDelay, true,
-					true, log, metrics, &mocks.MockedLint{
-						LintFn: func(repo string, manifestDigest godigest.Digest, imageStore storage.ImageStore) (bool, error) {
-							return false, nil
-						},
-					})
-			}
+// 			Convey("Setup manifest", t, func() {
+// 				content := []byte("test-data1")
+// 				buf := bytes.NewBuffer(content)
+// 				buflen := buf.Len()
+// 				digest := godigest.FromBytes(content)
 
-			Convey("Setup manifest", t, func() {
-				content := []byte("test-data1")
-				buf := bytes.NewBuffer(content)
-				buflen := buf.Len()
-				digest := godigest.FromBytes(content)
+// 				_, _, err := imgStore.FullBlobUpload("test", bytes.NewReader(buf.Bytes()), digest.String())
+// 				So(err, ShouldBeNil)
 
-				_, _, err := imgStore.FullBlobUpload("test", bytes.NewReader(buf.Bytes()), digest.String())
-				So(err, ShouldBeNil)
+// 				cblob, cdigest := test.GetRandomImageConfig()
+// 				_, clen, err := imgStore.FullBlobUpload("test", bytes.NewReader(cblob), cdigest.String())
+// 				So(err, ShouldBeNil)
+// 				So(clen, ShouldEqual, len(cblob))
 
-				cblob, cdigest := test.GetRandomImageConfig()
-				_, clen, err := imgStore.FullBlobUpload("test", bytes.NewReader(cblob), cdigest.String())
-				So(err, ShouldBeNil)
-				So(clen, ShouldEqual, len(cblob))
+// 				annotationsMap := make(map[string]string)
+// 				annotationsMap[ispec.AnnotationRefName] = "1.0"
 
-				annotationsMap := make(map[string]string)
-				annotationsMap[ispec.AnnotationRefName] = "1.0"
+// 				manifest := ispec.Manifest{
+// 					Config: ispec.Descriptor{
+// 						MediaType: "application/vnd.oci.image.config.v1+json",
+// 						Digest:    cdigest,
+// 						Size:      int64(len(cblob)),
+// 					},
+// 					Layers: []ispec.Descriptor{
+// 						{
+// 							MediaType: "application/vnd.oci.image.layer.v1.tar",
+// 							Digest:    digest,
+// 							Size:      int64(buflen),
+// 						},
+// 					},
+// 					Annotations: annotationsMap,
+// 				}
 
-				manifest := ispec.Manifest{
-					Config: ispec.Descriptor{
-						MediaType: "application/vnd.oci.image.config.v1+json",
-						Digest:    cdigest,
-						Size:      int64(len(cblob)),
-					},
-					Layers: []ispec.Descriptor{
-						{
-							MediaType: "application/vnd.oci.image.layer.v1.tar",
-							Digest:    digest,
-							Size:      int64(buflen),
-						},
-					},
-					Annotations: annotationsMap,
-				}
+// 				manifest.SchemaVersion = 2
+// 				manifestBuf, err := json.Marshal(manifest)
+// 				So(err, ShouldBeNil)
 
-				manifest.SchemaVersion = 2
-				manifestBuf, err := json.Marshal(manifest)
-				So(err, ShouldBeNil)
+// 				Convey("Missing mandatory annotations", func() {
+// 					_, err = imgStore.PutImageManifest("test", "1.0.0", ispec.MediaTypeImageManifest, manifestBuf)
+// 					So(err, ShouldNotBeNil)
+// 				})
 
-				Convey("Missing mandatory annotations", func() {
-					_, err = imgStore.PutImageManifest("test", "1.0.0", ispec.MediaTypeImageManifest, manifestBuf)
-					So(err, ShouldNotBeNil)
-				})
+// 				Convey("Error on mandatory annotations", func() {
+// 					if testcase.storageType == "s3" {
+// 						imgStore = s3.NewImageStore(testDir, tdir, false, 1, false, false, log, metrics,
+// 							&mocks.MockedLint{
+// 								LintFn: func(repo string, manifestDigest godigest.Digest, imageStore storage.ImageStore) (bool, error) {
+// 									// nolint: goerr113
+// 									return false, errors.New("linter error")
+// 								},
+// 							}, store)
+// 					} else {
+// 						imgStore = storage.NewImageStore(tdir, true, storage.DefaultGCDelay, true,
+// 							true, log, metrics, &mocks.MockedLint{
+// 								LintFn: func(repo string, manifestDigest godigest.Digest, imageStore storage.ImageStore) (bool, error) {
+// 									// nolint: goerr113
+// 									return false, errors.New("linter error")
+// 								},
+// 							})
+// 					}
 
-				Convey("Error on mandatory annotations", func() {
-					if testcase.storageType == "s3" {
-						imgStore = s3.NewImageStore(testDir, tdir, false, 1, false, false, log, metrics,
-							&mocks.MockedLint{
-								LintFn: func(repo string, manifestDigest godigest.Digest, imageStore storage.ImageStore) (bool, error) {
-									// nolint: goerr113
-									return false, errors.New("linter error")
-								},
-							}, store)
-					} else {
-						imgStore = storage.NewImageStore(tdir, true, storage.DefaultGCDelay, true,
-							true, log, metrics, &mocks.MockedLint{
-								LintFn: func(repo string, manifestDigest godigest.Digest, imageStore storage.ImageStore) (bool, error) {
-									// nolint: goerr113
-									return false, errors.New("linter error")
-								},
-							})
-					}
+// 					_, err = imgStore.PutImageManifest("test", "1.0.0", ispec.MediaTypeImageManifest, manifestBuf)
+// 					So(err, ShouldNotBeNil)
+// 				})
+// 			})
+// 		})
+// 	}
+// }
 
-					_, err = imgStore.PutImageManifest("test", "1.0.0", ispec.MediaTypeImageManifest, manifestBuf)
-					So(err, ShouldNotBeNil)
-				})
-			})
-		})
-	}
-}
+// func TestStorageHandler(t *testing.T) {
+// 	for _, testcase := range testCases {
+// 		testcase := testcase
+// 		t.Run(testcase.testCaseName, func(t *testing.T) {
+// 			var firstStore storage.ImageStore
+// 			var secondStore storage.ImageStore
+// 			var thirdStore storage.ImageStore
+// 			var firstRootDir string
+// 			var secondRootDir string
+// 			var thirdRootDir string
 
-func TestStorageHandler(t *testing.T) {
-	for _, testcase := range testCases {
-		testcase := testcase
-		t.Run(testcase.testCaseName, func(t *testing.T) {
-			var firstStore storage.ImageStore
-			var secondStore storage.ImageStore
-			var thirdStore storage.ImageStore
-			var firstRootDir string
-			var secondRootDir string
-			var thirdRootDir string
+// 			if testcase.storageType == "s3" {
+// 				skipIt(t)
+// 				var firstStorageDriver driver.StorageDriver
+// 				var secondStorageDriver driver.StorageDriver
+// 				var thirdStorageDriver driver.StorageDriver
 
-			if testcase.storageType == "s3" {
-				skipIt(t)
-				var firstStorageDriver driver.StorageDriver
-				var secondStorageDriver driver.StorageDriver
-				var thirdStorageDriver driver.StorageDriver
+// 				firstRootDir = "/util_test1"
+// 				firstStorageDriver, firstStore, _ = createObjectsStore(firstRootDir, t.TempDir())
+// 				defer cleanupStorage(firstStorageDriver, firstRootDir)
 
-				firstRootDir = "/util_test1"
-				firstStorageDriver, firstStore, _ = createObjectsStore(firstRootDir, t.TempDir())
-				defer cleanupStorage(firstStorageDriver, firstRootDir)
+// 				secondRootDir = "/util_test2"
+// 				secondStorageDriver, secondStore, _ = createObjectsStore(secondRootDir, t.TempDir())
+// 				defer cleanupStorage(secondStorageDriver, secondRootDir)
 
-				secondRootDir = "/util_test2"
-				secondStorageDriver, secondStore, _ = createObjectsStore(secondRootDir, t.TempDir())
-				defer cleanupStorage(secondStorageDriver, secondRootDir)
+// 				thirdRootDir = "/util_test3"
+// 				thirdStorageDriver, thirdStore, _ = createObjectsStore(thirdRootDir, t.TempDir())
+// 				defer cleanupStorage(thirdStorageDriver, thirdRootDir)
+// 			} else {
+// 				// Create temporary directory
+// 				firstRootDir = t.TempDir()
+// 				secondRootDir = t.TempDir()
+// 				thirdRootDir = t.TempDir()
 
-				thirdRootDir = "/util_test3"
-				thirdStorageDriver, thirdStore, _ = createObjectsStore(thirdRootDir, t.TempDir())
-				defer cleanupStorage(thirdStorageDriver, thirdRootDir)
-			} else {
-				// Create temporary directory
-				firstRootDir = t.TempDir()
-				secondRootDir = t.TempDir()
-				thirdRootDir = t.TempDir()
+// 				log := log.NewLogger("debug", "")
 
-				log := log.NewLogger("debug", "")
+// 				metrics := monitoring.NewMetricsServer(false, log)
 
-				metrics := monitoring.NewMetricsServer(false, log)
+// 				// Create ImageStore
+// 				firstStore = storage.NewImageStore(firstRootDir, false, storage.DefaultGCDelay,
+// 					false, false, log, metrics, nil)
 
-				// Create ImageStore
-				firstStore = storage.NewImageStore(firstRootDir, false, storage.DefaultGCDelay,
-					false, false, log, metrics, nil)
+// 				secondStore = storage.NewImageStore(secondRootDir, false,
+// 					storage.DefaultGCDelay, false, false, log, metrics, nil)
 
-				secondStore = storage.NewImageStore(secondRootDir, false,
-					storage.DefaultGCDelay, false, false, log, metrics, nil)
+// 				thirdStore = storage.NewImageStore(thirdRootDir, false, storage.DefaultGCDelay,
+// 					false, false, log, metrics, nil)
+// 			}
 
-				thirdStore = storage.NewImageStore(thirdRootDir, false, storage.DefaultGCDelay,
-					false, false, log, metrics, nil)
-			}
+// 			Convey("Test storage handler", t, func() {
+// 				storeController := storage.StoreController{}
 
-			Convey("Test storage handler", t, func() {
-				storeController := storage.StoreController{}
+// 				storeController.DefaultStore = firstStore
 
-				storeController.DefaultStore = firstStore
+// 				subStore := make(map[string]storage.ImageStore)
 
-				subStore := make(map[string]storage.ImageStore)
+// 				subStore["/a"] = secondStore
+// 				subStore["/b"] = thirdStore
 
-				subStore["/a"] = secondStore
-				subStore["/b"] = thirdStore
+// 				storeController.SubStore = subStore
 
-				storeController.SubStore = subStore
+// 				imgStore := storeController.GetImageStore("zot-x-test")
+// 				So(imgStore.RootDir(), ShouldEqual, firstRootDir)
 
-				imgStore := storeController.GetImageStore("zot-x-test")
-				So(imgStore.RootDir(), ShouldEqual, firstRootDir)
+// 				imgStore = storeController.GetImageStore("a/zot-a-test")
+// 				So(imgStore.RootDir(), ShouldEqual, secondRootDir)
 
-				imgStore = storeController.GetImageStore("a/zot-a-test")
-				So(imgStore.RootDir(), ShouldEqual, secondRootDir)
+// 				imgStore = storeController.GetImageStore("b/zot-b-test")
+// 				So(imgStore.RootDir(), ShouldEqual, thirdRootDir)
 
-				imgStore = storeController.GetImageStore("b/zot-b-test")
-				So(imgStore.RootDir(), ShouldEqual, thirdRootDir)
-
-				imgStore = storeController.GetImageStore("c/zot-c-test")
-				So(imgStore.RootDir(), ShouldEqual, firstRootDir)
-			})
-		})
-	}
-}
+// 				imgStore = storeController.GetImageStore("c/zot-c-test")
+// 				So(imgStore.RootDir(), ShouldEqual, firstRootDir)
+// 			})
+// 		})
+// 	}
+// }

@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	apexlog "github.com/apex/log"
+	"github.com/docker/distribution/registry/storage/driver"
 	guuid "github.com/gofrs/uuid"
 	"github.com/minio/sha256-simd"
 	"github.com/notaryproject/notation-go"
@@ -34,40 +35,20 @@ import (
 	"zotregistry.io/zot/pkg/test"
 )
 
-const (
-	// BlobUploadDir defines the upload directory for blob uploads.
-	BlobUploadDir    = ".uploads"
-	SchemaVersion    = 2
-	DefaultFilePerms = 0o600
-	DefaultDirPerms  = 0o700
-	RLOCK            = "RLock"
-	RWLOCK           = "RWLock"
-)
-
-// BlobUpload models and upload request.
-type BlobUpload struct {
-	StoreName string
-	ID        string
-}
-
-type StoreController struct {
-	DefaultStore ImageStore
-	SubStore     map[string]ImageStore
-}
-
 // ImageStoreLocal provides the image storage operations.
 type ImageStoreLocal struct {
-	rootDir     string
-	lock        *sync.RWMutex
-	blobUploads map[string]BlobUpload
-	cache       *Cache
-	gc          bool
-	dedupe      bool
-	commit      bool
-	gcDelay     time.Duration
-	log         zerolog.Logger
-	metrics     monitoring.MetricServer
-	linter      Lint
+	rootDir          string
+	lock             *sync.RWMutex
+	cache            *Cache
+	gc               bool
+	dedupe           bool
+	commit           bool
+	gcDelay          time.Duration
+	multiPartUploads sync.Map
+	log              zerolog.Logger
+	metrics          monitoring.MetricServer
+	linter           Lint
+	store            driver.StorageDriver
 }
 
 func (is *ImageStoreLocal) RootDir() string {
@@ -78,38 +59,13 @@ func (is *ImageStoreLocal) DirExists(d string) bool {
 	return DirExists(d)
 }
 
-func getRoutePrefix(name string) string {
-	names := strings.SplitN(name, "/", 2) //nolint:gomnd
-
-	if len(names) != 2 { //nolint:gomnd
-		// it means route is of global storage e.g "centos:latest"
-		if len(names) == 1 {
-			return "/"
-		}
-	}
-
-	return fmt.Sprintf("/%s", names[0])
-}
-
-func (sc StoreController) GetImageStore(name string) ImageStore {
-	if sc.SubStore != nil {
-		// SubStore is being provided, now we need to find equivalent image store and this will be found by splitting name
-		prefixName := getRoutePrefix(name)
-
-		imgStore, ok := sc.SubStore[prefixName]
-		if !ok {
-			imgStore = sc.DefaultStore
-		}
-
-		return imgStore
-	}
-
-	return sc.DefaultStore
+type Storage struct {
+	Base
 }
 
 // NewImageStore returns a new image store backed by a file storage.
 func NewImageStore(rootDir string, gc bool, gcDelay time.Duration, dedupe, commit bool,
-	log zlog.Logger, metrics monitoring.MetricServer, linter Lint,
+	log zlog.Logger, metrics monitoring.MetricServer, linter Lint, store driver.StorageDriver,
 ) ImageStore {
 	if _, err := os.Stat(rootDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(rootDir, DefaultDirPerms); err != nil {
@@ -120,16 +76,17 @@ func NewImageStore(rootDir string, gc bool, gcDelay time.Duration, dedupe, commi
 	}
 
 	imgStore := &ImageStoreLocal{
-		rootDir:     rootDir,
-		lock:        &sync.RWMutex{},
-		blobUploads: make(map[string]BlobUpload),
-		gc:          gc,
-		gcDelay:     gcDelay,
-		dedupe:      dedupe,
-		commit:      commit,
-		log:         log.With().Caller().Logger(),
-		metrics:     metrics,
-		linter:      linter,
+		rootDir:          rootDir,
+		lock:             &sync.RWMutex{},
+		gc:               gc,
+		gcDelay:          gcDelay,
+		dedupe:           dedupe,
+		commit:           commit,
+		log:              log.With().Caller().Logger(),
+		metrics:          metrics,
+		multiPartUploads: sync.Map{},
+		linter:           linter,
+		store:            store,
 	}
 
 	if dedupe {
@@ -151,7 +108,19 @@ func NewImageStore(rootDir string, gc bool, gcDelay time.Duration, dedupe, commi
 		}))
 	}
 
-	return imgStore
+	return &Storage{
+		Base: Base{
+			ImageStore:       imgStore,
+			RootDirectory:    rootDir,
+			Store:            store,
+			Locker:           imgStore.lock,
+			MultiPartUploads: imgStore.multiPartUploads,
+			Metrics:          metrics,
+			Dedupe:           dedupe,
+			Linter:           linter,
+			Cache:            imgStore.cache,
+		},
+	}
 }
 
 // RLock read-lock.
@@ -202,6 +171,7 @@ func (is *ImageStoreLocal) initRepo(name string) error {
 
 		return err
 	}
+
 	// create BlobUploadDir subdir
 	err = ensureDir(path.Join(repoDir, BlobUploadDir), is.log)
 	if err != nil {

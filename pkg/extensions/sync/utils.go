@@ -16,6 +16,7 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/image/v5/oci/layout"
 	"github.com/containers/image/v5/types"
+	"github.com/docker/distribution/registry/storage/driver/factory"
 	guuid "github.com/gofrs/uuid"
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
@@ -269,9 +270,16 @@ func pushSyncedLocalImage(localRepo, tag, localCachePath string,
 	log.Info().Msgf("pushing synced local image %s/%s:%s to local registry", localCachePath, localRepo, tag)
 
 	metrics := monitoring.NewMetricsServer(false, log)
+	storageDriverParams := map[string]interface{}{
+		"rootDir": localCachePath,
+	}
+	store, err := factory.Create("filesystem", storageDriverParams)
+	if err != nil {
+		return err
+	}
 
 	cacheImageStore := storage.NewImageStore(localCachePath, false,
-		storage.DefaultGCDelay, false, false, log, metrics, nil)
+		storage.DefaultGCDelay, false, false, log, metrics, nil, store)
 
 	manifestContent, _, _, err := cacheImageStore.GetImageManifest(localRepo, tag)
 	if err != nil {

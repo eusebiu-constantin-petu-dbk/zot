@@ -19,6 +19,7 @@ import (
 	"zotregistry.io/zot/pkg/api"
 	"zotregistry.io/zot/pkg/api/config"
 	"zotregistry.io/zot/pkg/api/constants"
+	"zotregistry.io/zot/pkg/common"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/storage"
@@ -263,7 +264,8 @@ func validateConfiguration(config *config.Config) error {
 
 	if len(config.Storage.StorageDriver) != 0 {
 		// enforce s3 driver in case of using storage driver
-		if config.Storage.StorageDriver["name"] != storage.S3StorageDriverName {
+		storeName, _ := config.Storage.StorageDriver["name"].(string)
+		if !common.Contains([]string{"s3", "filesystem"}, storeName) {
 			log.Error().Err(errors.ErrBadConfig).Msgf("unsupported storage driver: %s", config.Storage.StorageDriver["name"])
 
 			return errors.ErrBadConfig
