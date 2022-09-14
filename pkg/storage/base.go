@@ -32,9 +32,6 @@ const (
 	SchemaVersion    = 2
 	DefaultFilePerms = 0o600
 	DefaultDirPerms  = 0o700
-	RLOCK            = "RLock"
-	RWLOCK           = "RWLock"
-	CacheDBName      = "s3_cache"
 )
 
 type StoreController struct {
@@ -77,7 +74,7 @@ type Base struct {
 	Store         driver.StorageDriver
 	Locker        *sync.RWMutex
 	Log           zerolog.Logger
-	// We must keep track of multi part uploads to s3, because the lib
+	// We must keep track of multi part uploads, because the lib
 	// which we are using doesn't cancel multiparts uploads
 	// see: https://github.com/distribution/distribution/blob/main/registry/storage/driver/s3-aws/s3.go#L545
 	MultiPartUploads sync.Map

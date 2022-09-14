@@ -1,4 +1,4 @@
-package s3
+package storage
 
 import (
 	"bytes"
@@ -20,13 +20,12 @@ import (
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	zlog "zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/storage"
-	"zotregistry.io/zot/pkg/test"
 )
 
 const (
 	RLOCK       = "RLock"
 	RWLOCK      = "RWLock"
-	CacheDBName = "s3_cache"
+	CacheDBName = "cache"
 )
 
 // ObjectStorage provides the image storage operations.
@@ -74,16 +73,8 @@ func NewImageStore(rootDir string, cacheDir string, gc bool, gcDelay time.Durati
 		linter:           linter,
 	}
 
-	cachePath := path.Join(cacheDir, CacheDBName+storage.DBExtensionName)
-
 	if dedupe {
-		imgStore.cache = storage.NewCache(cacheDir, CacheDBName, false, log)
-	} else {
-		// if dedupe was used in previous runs use it to serve blobs correctly
-		if _, err := os.Stat(cachePath); err == nil {
-			log.Info().Str("cache path", cachePath).Msg("found cache database")
-			imgStore.cache = storage.NewCache(cacheDir, CacheDBName, false, log)
-		}
+		imgStore.cache = storage.NewCache(cacheDir, CacheDBName, true, log)
 	}
 
 	return &Storage{
@@ -202,19 +193,20 @@ func (is *ObjectStorage) FullBlobUpload(repo string, body io.Reader, digest stri
 	return "", 0, nil
 }
 
-func (is *ObjectStorage) DedupeBlob(src string, dstDigest godigest.Digest, dst string) error {
+func (is *ImageStoreLocal) DedupeBlob(src string, dstDigest godigest.Digest, dst string) error {
 retry:
 	is.log.Debug().Str("src", src).Str("dstDigest", dstDigest.String()).Str("dst", dst).Msg("dedupe: enter")
 
 	dstRecord, err := is.cache.GetBlob(dstDigest.String())
-	if err := test.Error(err); err != nil && !errors.Is(err, zerr.ErrCacheMiss) {
+
+	if err != nil && !errors.Is(err, zerr.ErrCacheMiss) {
 		is.log.Error().Err(err).Str("blobPath", dst).Msg("dedupe: unable to lookup blob record")
 
 		return err
 	}
 
 	if dstRecord == "" {
-		// cache record doesn't exist, so first disk and cache entry for this digest
+		// cache record doesn't exist, so first disk and cache entry for this diges
 		if err := is.cache.PutBlob(dstDigest.String(), dst); err != nil {
 			is.log.Error().Err(err).Str("blobPath", dst).Msg("dedupe: unable to insert blob record")
 
@@ -222,7 +214,7 @@ retry:
 		}
 
 		// move the blob from uploads to final dest
-		if err := is.store.Move(context.Background(), src, dst); err != nil {
+		if err := os.Rename(src, dst); err != nil {
 			is.log.Error().Err(err).Str("src", src).Str("dst", dst).Msg("dedupe: unable to rename blob")
 
 			return err
@@ -232,13 +224,14 @@ retry:
 	} else {
 		// cache record exists, but due to GC and upgrades from older versions,
 		// disk content and cache records may go out of sync
-		_, err := is.store.Stat(context.Background(), dstRecord)
+		dstRecord = path.Join(is.rootDir, dstRecord)
+
+		dstRecordFi, err := os.Stat(dstRecord)
 		if err != nil {
 			is.log.Error().Err(err).Str("blobPath", dstRecord).Msg("dedupe: unable to stat")
 			// the actual blob on disk may have been removed by GC, so sync the cache
-			err := is.cache.DeleteBlob(dstDigest.String(), dstRecord)
-			if err = test.Error(err); err != nil {
-				// nolint:lll
+			if err := is.cache.DeleteBlob(dstDigest.String(), dstRecord); err != nil {
+				//nolint:lll // gofumpt conflicts with lll
 				is.log.Error().Err(err).Str("dstDigest", dstDigest.String()).Str("dst", dst).Msg("dedupe: unable to delete blob record")
 
 				return err
@@ -247,33 +240,32 @@ retry:
 			goto retry
 		}
 
-		fileInfo, err := is.store.Stat(context.Background(), dst)
-		if err != nil && !errors.As(err, &driver.PathNotFoundError{}) {
+		dstFi, err := os.Stat(dst)
+		if err != nil && !os.IsNotExist(err) {
 			is.log.Error().Err(err).Str("blobPath", dstRecord).Msg("dedupe: unable to stat")
 
 			return err
 		}
 
-		// prevent overwrite original blob
-		if fileInfo == nil && dstRecord != dst {
-			// put empty file so that we are compliant with oci layout, this will act as a deduped blob
-			err = is.store.PutContent(context.Background(), dst, []byte{})
-			if err != nil {
-				is.log.Error().Err(err).Str("blobPath", dstRecord).Msg("dedupe: unable to write empty file")
+		if !os.SameFile(dstFi, dstRecordFi) {
+			// blob lookup cache out of sync with actual disk contents
+			if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+				is.log.Error().Err(err).Str("dst", dst).Msg("dedupe: unable to remove blob")
 
 				return err
 			}
 
-			if err := is.cache.PutBlob(dstDigest.String(), dst); err != nil {
-				is.log.Error().Err(err).Str("blobPath", dst).Msg("dedupe: unable to insert blob record")
+			is.log.Debug().Str("blobPath", dst).Str("dstRecord", dstRecord).Msg("dedupe: creating hard link")
+
+			if err := os.Link(dstRecord, dst); err != nil {
+				is.log.Error().Err(err).Str("blobPath", dst).Str("link", dstRecord).Msg("dedupe: unable to hard link")
 
 				return err
 			}
 		}
 
-		// remove temp blobupload
-		if err := is.store.Delete(context.Background(), src); err != nil {
-			is.log.Error().Err(err).Str("src", src).Msg("dedupe: unable to remove blob")
+		if err := os.Remove(src); err != nil {
+			is.log.Error().Err(err).Str("src", src).Msg("dedupe: uname to remove blob")
 
 			return err
 		}
