@@ -31,7 +31,7 @@ func TestCheckAllBlobsIntegrity(t *testing.T) {
 	metrics := monitoring.NewMetricsServer(false, log)
 
 	imgStore := storage.NewImageStore(dir, true, storage.DefaultGCDelay,
-		true, true, log, metrics, nil)
+		true, true, log, metrics, nil, getFilesystemDriver())
 
 	Convey("Scrub only one repo", t, func(c C) {
 		// initialize repo

@@ -70,7 +70,6 @@ func createObjectsStore(rootDir string, cacheDir string, dedupe bool) (
 	bucket := "zot-storage-test"
 	endpoint := os.Getenv("S3MOCK_ENDPOINT")
 	storageDriverParams := map[string]interface{}{
-		"rootDir":        rootDir,
 		"name":           "s3",
 		"region":         "us-east-2",
 		"bucket":         bucket,

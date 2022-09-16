@@ -117,7 +117,7 @@ func TestStorageAPIs(t *testing.T) {
 			} else {
 				dir := t.TempDir()
 				storageDriverParams := map[string]interface{}{
-					"rootDir": dir,
+					"rootdirectory": "",
 				}
 				store, err := factory.Create("filesystem", storageDriverParams)
 				if err != nil {
