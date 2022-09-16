@@ -45,4 +45,5 @@ type ImageStore interface {
 	GetBlobContent(repo, digest string) ([]byte, error)
 	GetReferrers(repo, digest string, mediaType string) ([]artifactspec.Descriptor, error)
 	RunGCRepo(repo string)
+	GarbageCollect(dir string, repo string) error
 }

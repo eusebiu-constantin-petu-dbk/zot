@@ -1,7 +1,6 @@
 package s3
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -12,8 +11,9 @@ import (
 
 	// Add s3 support.
 	"github.com/docker/distribution/registry/storage/driver"
+	// Load s3 driver.
+	_ "github.com/docker/distribution/registry/storage/driver/s3-aws"
 	godigest "github.com/opencontainers/go-digest"
-	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/rs/zerolog"
 	zerr "zotregistry.io/zot/errors"
@@ -39,10 +39,13 @@ type ObjectStorage struct {
 	// which we are using doesn't cancel multiparts uploads
 	// see: https://github.com/distribution/distribution/blob/main/registry/storage/driver/s3-aws/s3.go#L545
 	multiPartUploads sync.Map
+	gcDelay          time.Duration
 	metrics          monitoring.MetricServer
 	cache            *storage.Cache
 	dedupe           bool
 	linter           storage.Lint
+	commit           bool
+	gc               bool
 }
 
 func (is *ObjectStorage) RootDir() string {
@@ -72,6 +75,9 @@ func NewImageStore(rootDir string, cacheDir string, gc bool, gcDelay time.Durati
 		metrics:          metrics,
 		dedupe:           dedupe,
 		linter:           linter,
+		gcDelay:          gcDelay, // not implemented for s3
+		gc:               false,   // not implemented for s3
+		commit:           commit,
 	}
 
 	cachePath := path.Join(cacheDir, CacheDBName+storage.DBExtensionName)
@@ -97,6 +103,9 @@ func NewImageStore(rootDir string, cacheDir string, gc bool, gcDelay time.Durati
 			Dedupe:           dedupe,
 			Linter:           linter,
 			Cache:            imgStore.cache,
+			Commit:           commit,
+			GcDelay:          gcDelay,
+			Gc:               false,
 		},
 	}
 }
@@ -457,22 +466,7 @@ func (is *ObjectStorage) GetBlob(repo, digest, mediaType string) (io.ReadCloser,
 }
 
 func (is *ObjectStorage) GetBlobContent(repo, digest string) ([]byte, error) {
-	blob, _, err := is.GetBlob(repo, digest, ispec.MediaTypeImageManifest)
-	if err != nil {
-		return []byte{}, err
-	}
-	defer blob.Close()
-
-	buf := new(bytes.Buffer)
-
-	_, err = buf.ReadFrom(blob)
-	if err != nil {
-		is.log.Error().Err(err).Msg("failed to read blob")
-
-		return []byte{}, err
-	}
-
-	return buf.Bytes(), nil
+	return []byte{}, nil
 }
 
 func (is *ObjectStorage) GetReferrers(repo, digest, mediaType string) ([]artifactspec.Descriptor, error) {
@@ -480,21 +474,7 @@ func (is *ObjectStorage) GetReferrers(repo, digest, mediaType string) ([]artifac
 }
 
 func (is *ObjectStorage) GetIndexContent(repo string) ([]byte, error) {
-	var lockLatency time.Time
-
-	dir := path.Join(is.rootDir, repo)
-
-	is.RLock(&lockLatency)
-	defer is.RUnlock(&lockLatency)
-
-	buf, err := is.store.GetContent(context.Background(), path.Join(dir, "index.json"))
-	if err != nil {
-		is.log.Error().Err(err).Str("dir", dir).Msg("failed to read index.json")
-
-		return []byte{}, zerr.ErrRepoNotFound
-	}
-
-	return buf, nil
+	return []byte{}, nil
 }
 
 // DeleteBlob removes the blob from the repository.
@@ -564,5 +544,9 @@ func (is *ObjectStorage) DeleteBlob(repo, digest string) error {
 		return err
 	}
 
+	return nil
+}
+
+func (is *ObjectStorage) GarbageCollect(dir string, repo string) error {
 	return nil
 }

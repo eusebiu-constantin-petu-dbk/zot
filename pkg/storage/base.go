@@ -17,6 +17,7 @@ import (
 	// Add s3 support.
 	"github.com/docker/distribution/registry/storage/driver"
 	guuid "github.com/gofrs/uuid"
+	"github.com/notaryproject/notation-go"
 	godigest "github.com/opencontainers/go-digest"
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
@@ -82,6 +83,9 @@ type Base struct {
 	Cache            *Cache
 	Dedupe           bool
 	Linter           Lint
+	GcDelay          time.Duration
+	Gc               bool
+	Commit           bool
 	ImageStore
 }
 
@@ -512,29 +516,9 @@ func (is *Base) PutImageManifest(repo, reference, mediaType string, //nolint: go
 		return "", zerr.ErrBadManifest
 	}
 
-	var imageManifest ispec.Manifest
-	if err := json.Unmarshal(body, &imageManifest); err != nil {
-		is.Log.Error().Err(err).Msg("unable to unmarshal JSON")
-
-		return "", zerr.ErrBadManifest
-	}
-
-	if imageManifest.SchemaVersion != SchemaVersion {
-		is.Log.Error().Int("SchemaVersion", imageManifest.SchemaVersion).Msg("invalid manifest")
-
-		return "", zerr.ErrBadManifest
-	}
-
-	for _, l := range imageManifest.Layers {
-		digest := l.Digest
-		blobPath := is.BlobPath(repo, digest)
-		is.Log.Info().Str("blobPath", blobPath).Str("reference", reference).Msg("manifest layers")
-
-		if _, err := is.Store.Stat(context.Background(), blobPath); err != nil {
-			is.Log.Error().Err(err).Str("blobPath", blobPath).Msg("unable to find blob")
-
-			return digest.String(), zerr.ErrBlobNotFound
-		}
+	dig, err := validateManifest(is, repo, reference, mediaType, body)
+	if err != nil {
+		return dig, err
 	}
 
 	mDigest := godigest.FromBytes(body)
@@ -710,6 +694,12 @@ func (is *Base) PutImageManifest(repo, reference, mediaType string, //nolint: go
 		return "", err
 	}
 
+	if is.Gc {
+		if err := is.ImageStore.GarbageCollect(dir, repo); err != nil {
+			return "", err
+		}
+	}
+
 	monitoring.SetStorageUsage(is.Metrics, is.RootDirectory, repo)
 	monitoring.IncUploadCounter(is.Metrics, repo)
 
@@ -825,6 +815,12 @@ func (is *Base) DeleteImageManifest(repo, reference string) error {
 		is.Log.Debug().Str("deleting reference", reference).Msg("")
 
 		return err
+	}
+
+	if is.Gc {
+		if err := is.ImageStore.GarbageCollect(dir, repo); err != nil {
+			return err
+		}
 	}
 
 	// Delete blob only when blob digest not present in manifest entry.
@@ -960,6 +956,8 @@ func (is *Base) PutBlobChunkStreamed(repo, uuid string, body io.Reader) (int64, 
 
 		return -1, err
 	}
+
+	file.Commit()
 
 	return int64(nbytes), err
 }
@@ -1343,4 +1341,99 @@ func getMultipartFileWriter(imgStore *Base, filepath string) (driver.FileWriter,
 	}
 
 	return file, nil
+}
+
+func (is *Base) validateOCIManifest(repo, reference string, manifest *ispec.Manifest) (string, error) {
+	if manifest.SchemaVersion != SchemaVersion {
+		is.Log.Error().Int("SchemaVersion", manifest.SchemaVersion).Msg("invalid manifest")
+
+		return "", zerr.ErrBadManifest
+	}
+
+	// validate image config
+	config := manifest.Config
+	if config.MediaType != ispec.MediaTypeImageConfig {
+		return "", zerr.ErrBadManifest
+	}
+
+	digest := config.Digest
+
+	blobPath := is.BlobPath(repo, digest)
+	if _, err := is.Store.Stat(context.Background(), blobPath); err != nil {
+		is.Log.Error().Err(err).Str("blobPath", blobPath).Msg("unable to find blob")
+
+		return digest.String(), zerr.ErrBlobNotFound
+	}
+
+	blobFile, err := is.Store.Reader(context.Background(), blobPath, 0)
+	if err != nil {
+		is.Log.Error().Err(err).Str("blobPath", blobPath).Msg("unable to find blob")
+
+		return digest.String(), zerr.ErrBlobNotFound
+	}
+
+	defer blobFile.Close()
+
+	dec := json.NewDecoder(blobFile)
+
+	var cspec ispec.Image
+	if err := dec.Decode(&cspec); err != nil {
+		return "", zerr.ErrBadManifest
+	}
+
+	// validate the layers
+	for _, l := range manifest.Layers {
+		digest = l.Digest
+		blobPath = is.BlobPath(repo, digest)
+		is.Log.Info().Str("blobPath", blobPath).Str("reference", reference).Msg("manifest layers")
+
+		if _, err := is.Store.Stat(context.Background(), blobPath); err != nil {
+			is.Log.Error().Err(err).Str("blobPath", blobPath).Msg("unable to find blob")
+
+			return digest.String(), zerr.ErrBlobNotFound
+		}
+	}
+
+	return "", nil
+}
+
+func (is *Base) garbageCollect(dir string, repo string) error {
+	return nil
+}
+
+func IsSupportedMediaType(mediaType string) bool {
+	return mediaType == ispec.MediaTypeImageIndex ||
+		mediaType == ispec.MediaTypeImageManifest ||
+		mediaType == artifactspec.MediaTypeArtifactManifest
+}
+
+func validateManifest(imgStore *Base, repo, reference,
+	mediaType string, body []byte,
+) (string, error) {
+	if mediaType == ispec.MediaTypeImageManifest {
+		var manifest ispec.Manifest
+		if err := json.Unmarshal(body, &manifest); err != nil {
+			imgStore.Log.Error().Err(err).Msg("unable to unmarshal JSON")
+
+			return "", zerr.ErrBadManifest
+		}
+
+		if manifest.Config.MediaType == ispec.MediaTypeImageConfig {
+			digest, err := imgStore.validateOCIManifest(repo, reference, &manifest)
+			if err != nil {
+				imgStore.Log.Error().Err(err).Msg("invalid oci image manifest")
+
+				return digest, err
+			}
+		}
+	} else if mediaType == artifactspec.MediaTypeArtifactManifest {
+		var m notation.Descriptor
+		if err := json.Unmarshal(body, &m); err != nil {
+			imgStore.Log.Error().Err(err).Msg("unable to unmarshal JSON")
+
+			return "", zerr.ErrBadManifest
+		}
+	}
+
+	return "", nil
 }

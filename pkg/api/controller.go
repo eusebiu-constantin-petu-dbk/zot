@@ -20,7 +20,6 @@ import (
 	"github.com/gorilla/mux"
 	"zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/api/config"
-	"zotregistry.io/zot/pkg/common"
 	ext "zotregistry.io/zot/pkg/extensions"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
 	"zotregistry.io/zot/pkg/extensions/lint"
@@ -262,39 +261,51 @@ func (c *Controller) InitImageStore(reloadCtx context.Context) error {
 		}
 
 		var defaultStore storage.ImageStore
+		if c.Config.Storage.StorageDriver == nil {
+			// false positive lint - linter does not implement Lint method
+			// nolint: typecheck
 
-		storeName := fmt.Sprintf("%v", c.Config.Storage.StorageDriver["name"])
-		if !common.Contains([]string{"s3", "filesystem"}, storeName) {
-			c.Log.Fatal().Err(errors.ErrBadConfig).Msgf("unsupported storage driver: %s",
-				c.Config.Storage.StorageDriver["name"])
-		}
-		// Init a Storager from connection string.
-		store, err := factory.Create(storeName, c.Config.Storage.StorageDriver)
-		if err != nil {
-			c.Log.Error().Err(err).Str("rootDir", c.Config.Storage.RootDirectory).Msg("unable to create filesystem/s3 service")
+			// Init a Storager for local storage
+			store, err := factory.Create("filesystem", map[string]interface{}{"rootdirectory": c.Config.Storage.RootDirectory})
+			if err != nil {
+				c.Log.Error().Err(err).Str("rootDir", c.Config.Storage.RootDirectory).Msg("unable to create filesystem service")
 
-			return err
-		}
+				return err
+			}
 
-		/* in the case of s3 c.Config.Storage.RootDirectory is used for caching blobs locally and
-		c.Config.Storage.StorageDriver["rootdirectory"] is the actual rootDir in s3 */
-		rootDir := "/"
-		if c.Config.Storage.StorageDriver["rootdirectory"] != nil {
-			rootDir = fmt.Sprintf("%v", c.Config.Storage.StorageDriver["rootdirectory"])
-		}
+			defaultStore = storage.NewImageStore(c.Config.Storage.RootDirectory,
+				c.Config.Storage.GC, c.Config.Storage.GCDelay,
+				c.Config.Storage.Dedupe, c.Config.Storage.Commit, c.Log, c.Metrics, linter, store,
+			)
+		} else {
+			storeName := fmt.Sprintf("%v", c.Config.Storage.StorageDriver["name"])
+			if storeName != storage.S3StorageDriverName {
+				c.Log.Fatal().Err(errors.ErrBadConfig).Msgf("unsupported storage driver: %s",
+					c.Config.Storage.StorageDriver["name"])
+			}
+			// Init a Storager from connection string.
+			store, err := factory.Create(storeName, c.Config.Storage.StorageDriver)
+			if err != nil {
+				c.Log.Error().Err(err).Str("rootDir", c.Config.Storage.RootDirectory).Msg("unable to create s3 service")
 
-		// false positive lint - linter does not implement Lint method
-		// nolint: typecheck
-		if storeName == "s3" {
+				return err
+			}
+
+			/* in the case of s3 c.Config.Storage.RootDirectory is used for caching blobs locally and
+			c.Config.Storage.StorageDriver["rootdirectory"] is the actual rootDir in s3 */
+			rootDir := "/"
+			if c.Config.Storage.StorageDriver["rootdirectory"] != nil {
+				rootDir = fmt.Sprintf("%v", c.Config.Storage.StorageDriver["rootdirectory"])
+			}
+
+			// false positive lint - linter does not implement Lint method
+			// nolint: typecheck
 			defaultStore = s3.NewImageStore(rootDir, c.Config.Storage.RootDirectory,
 				c.Config.Storage.GC, c.Config.Storage.GCDelay, c.Config.Storage.Dedupe,
 				c.Config.Storage.Commit, c.Log, c.Metrics, linter, store)
-
-			c.StoreController.DefaultStore = defaultStore
-		} else {
-			defaultStore = storage.NewImageStore(rootDir, c.Config.Storage.GC, c.Config.Storage.GCDelay, c.Config.Storage.Dedupe,
-				c.Config.Storage.Commit, c.Log, c.Metrics, linter, store)
 		}
+
+		c.StoreController.DefaultStore = defaultStore
 	} else {
 		// we can't proceed without global storage
 		c.Log.Error().Err(errors.ErrImgStoreNotFound).Msg("controller: no storage config provided")
@@ -342,31 +353,46 @@ func (c *Controller) getSubStore(subPaths map[string]config.StorageConfig,
 			}
 		}
 
-		// Compare if subpath root dir is same as default root dir
-		isSame, _ := config.SameFile(c.Config.Storage.RootDirectory, storageConfig.RootDirectory)
+		if storageConfig.StorageDriver == nil {
+			// Compare if subpath root dir is same as default root dir
+			isSame, _ := config.SameFile(c.Config.Storage.RootDirectory, storageConfig.RootDirectory)
 
-		if isSame {
-			c.Log.Error().Err(errors.ErrBadConfig).Msg("sub path storage directory is same as root directory")
+			if isSame {
+				c.Log.Error().Err(errors.ErrBadConfig).Msg("sub path storage directory is same as root directory")
 
-			return nil, errors.ErrBadConfig
-		}
-
-		isUnique := true
-
-		// Compare subpath unique files
-		for file := range imgStoreMap {
-			// We already have image storage for this file
-			if compareImageStore(file, storageConfig.RootDirectory) {
-				subImageStore[route] = imgStoreMap[file]
-
-				isUnique = true
+				return nil, errors.ErrBadConfig
 			}
-		}
 
-		// subpath root directory is unique
-		// add it to uniqueSubFiles
-		// Create a new image store and assign it to imgStoreMap
-		if isUnique {
+			isUnique := true
+
+			// Compare subpath unique files
+			for file := range imgStoreMap {
+				// We already have image storage for this file
+				if compareImageStore(file, storageConfig.RootDirectory) {
+					subImageStore[route] = imgStoreMap[file]
+
+					isUnique = true
+				}
+			}
+
+			// subpath root directory is unique
+			// add it to uniqueSubFiles
+			// Create a new image store and assign it to imgStoreMap
+			if isUnique {
+				// Init a Storager for local storage
+				store, err := factory.Create("filesystem", map[string]interface{}{"rootdirectory": c.Config.Storage.RootDirectory})
+				if err != nil {
+					c.Log.Error().Err(err).Str("rootDir", c.Config.Storage.RootDirectory).Msg("unable to create filesystem service")
+
+					return nil, err
+				}
+
+				imgStoreMap[storageConfig.RootDirectory] = storage.NewImageStore(storageConfig.RootDirectory,
+					storageConfig.GC, storageConfig.GCDelay, storageConfig.Dedupe, storageConfig.Commit, c.Log, c.Metrics, linter, store)
+
+				subImageStore[route] = imgStoreMap[storageConfig.RootDirectory]
+			}
+		} else {
 			storeName := fmt.Sprintf("%v", storageConfig.StorageDriver["name"])
 			if storeName != storage.S3StorageDriverName {
 				c.Log.Fatal().Err(errors.ErrBadConfig).Msgf("unsupported storage driver: %s", storageConfig.StorageDriver["name"])
@@ -387,16 +413,12 @@ func (c *Controller) getSubStore(subPaths map[string]config.StorageConfig,
 				rootDir = fmt.Sprintf("%v", c.Config.Storage.StorageDriver["rootdirectory"])
 			}
 
-			if storeName == "s3" {
-				// false positive lint - linter does not implement Lint method
-				// nolint: typecheck
-				subImageStore[route] = s3.NewImageStore(rootDir, storageConfig.RootDirectory,
-					storageConfig.GC, storageConfig.GCDelay,
-					storageConfig.Dedupe, storageConfig.Commit, c.Log, c.Metrics, linter, store)
-			} else {
-				subImageStore[route] = storage.NewImageStore(rootDir, storageConfig.GC, storageConfig.GCDelay,
-					storageConfig.Dedupe, storageConfig.Commit, c.Log, c.Metrics, linter, store)
-			}
+			// false positive lint - linter does not implement Lint method
+			// nolint: typecheck
+			subImageStore[route] = s3.NewImageStore(rootDir, storageConfig.RootDirectory,
+				storageConfig.GC, storageConfig.GCDelay,
+				storageConfig.Dedupe, storageConfig.Commit, c.Log, c.Metrics, linter, store,
+			)
 		}
 	}
 

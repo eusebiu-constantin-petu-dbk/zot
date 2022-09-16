@@ -6,7 +6,7 @@ require (
 	github.com/99designs/gqlgen v0.17.14
 	github.com/Masterminds/semver v1.5.0
 	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751
-	github.com/apex/log v1.9.0
+	github.com/apex/log v1.9.0 // indirect
 	github.com/aquasecurity/trivy-db v0.0.0-20210916043317-726b7b72a47b
 	github.com/bmatcuk/doublestar/v4 v4.2.0
 	github.com/briandowns/spinner v1.19.0
@@ -24,7 +24,6 @@ require (
 	github.com/gorilla/handlers v1.5.1
 	github.com/gorilla/mux v1.8.0
 	github.com/json-iterator/go v1.1.12
-	github.com/minio/sha256-simd v1.0.0
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/nmcclain/ldap v0.0.0-20210720162743-7f8d1e44eeba
 	github.com/olekukonko/tablewriter v0.0.5
@@ -236,7 +235,6 @@ require (
 	github.com/jtolds/gls v4.20.0+incompatible // indirect
 	github.com/kevinburke/ssh_config v0.0.0-20201106050909-4977a11b4351 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect
-	github.com/klauspost/cpuid/v2 v2.0.4 // indirect
 	github.com/klauspost/pgzip v1.2.5 // indirect
 	github.com/knqyf263/go-apk-version v0.0.0-20200609155635-041fdbb8563f // indirect
 	github.com/knqyf263/go-deb-version v0.0.0-20190517075300-09fca494f03d // indirect
