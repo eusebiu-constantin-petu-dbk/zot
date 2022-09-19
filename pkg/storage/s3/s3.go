@@ -175,7 +175,12 @@ func (is *ObjectStorage) initRepo(name string) error {
 
 // InitRepo creates an image repository under this store.
 func (is *ObjectStorage) InitRepo(name string) error {
-	return nil
+	var lockLatency time.Time
+
+	is.Lock(&lockLatency)
+	defer is.Unlock(&lockLatency)
+
+	return is.initRepo(name)
 }
 
 // ValidateRepo validates that the repository layout is complaint with the OCI repo layout.
@@ -418,7 +423,7 @@ func (is *ObjectStorage) checkCacheBlob(digest string) (string, error) {
 }
 
 func (is *ObjectStorage) copyBlob(repo string, blobPath string, dstRecord string) (int64, error) {
-	if err := is.initRepo(repo); err != nil {
+	if err := is.InitRepo(repo); err != nil {
 		is.log.Error().Err(err).Str("repo", repo).Msg("unable to initialize an empty repo")
 
 		return -1, err

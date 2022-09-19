@@ -214,7 +214,12 @@ func (is *LocalStorage) writeFile(filename string, data []byte) error {
 
 // InitRepo creates an image repository under this store.
 func (is *LocalStorage) InitRepo(name string) error {
-	return nil
+	var lockLatency time.Time
+
+	is.Lock(&lockLatency)
+	defer is.Unlock(&lockLatency)
+
+	return is.initRepo(name)
 }
 
 // ValidateRepo validates that the repository layout is complaint with the OCI repo layout.

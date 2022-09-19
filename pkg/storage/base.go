@@ -137,12 +137,7 @@ func (is *Base) Unlock(lockStart *time.Time) {
 
 // InitRepo creates an image repository under this store.
 func (is *Base) InitRepo(name string) error {
-	var lockLatency time.Time
-
-	is.Lock(&lockLatency)
-	defer is.Unlock(&lockLatency)
-
-	return is.ImageStore.InitRepo(name)
+	return nil
 }
 
 // ValidateRepo validates that the repository layout is complaint with the OCI repo layout.
@@ -1174,6 +1169,7 @@ func (is *Base) DedupeBlob(src string, dstDigest godigest.Digest, dst string) er
 }
 
 func (is *Base) RunGCRepo(repo string) {
+	is.ImageStore.RunGCRepo(repo)
 }
 
 // DeleteBlobUpload deletes an existing blob upload that is currently in progress.
