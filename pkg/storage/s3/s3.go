@@ -129,47 +129,6 @@ func (is *ObjectStorage) Unlock(lockStart *time.Time) {
 }
 
 func (is *ObjectStorage) initRepo(name string) error {
-	repoDir := path.Join(is.rootDir, name)
-
-	// "oci-layout" file - create if it doesn't exist
-	ilPath := path.Join(repoDir, ispec.ImageLayoutFile)
-	if _, err := is.store.Stat(context.Background(), ilPath); err != nil {
-		il := ispec.ImageLayout{Version: ispec.ImageLayoutVersion}
-
-		buf, err := json.Marshal(il)
-		if err != nil {
-			is.log.Error().Err(err).Msg("unable to marshal JSON")
-
-			return err
-		}
-
-		if err := is.store.PutContent(context.Background(), ilPath, buf); err != nil {
-			is.log.Error().Err(err).Str("file", ilPath).Msg("unable to write file")
-
-			return err
-		}
-	}
-
-	// "index.json" file - create if it doesn't exist
-	indexPath := path.Join(repoDir, "index.json")
-	if _, err := is.store.Stat(context.Background(), indexPath); err != nil {
-		index := ispec.Index{}
-		index.SchemaVersion = 2
-
-		buf, err := json.Marshal(index)
-		if err != nil {
-			is.log.Error().Err(err).Msg("unable to marshal JSON")
-
-			return err
-		}
-
-		if err := is.store.PutContent(context.Background(), indexPath, buf); err != nil {
-			is.log.Error().Err(err).Str("file", ilPath).Msg("unable to write file")
-
-			return err
-		}
-	}
-
 	return nil
 }
 

@@ -319,7 +319,7 @@ retry:
 		}
 
 		// move the blob from uploads to final dest
-		if err := os.Rename(src, dst); err != nil {
+		if err := is.store.Move(context.Background(), src, dst); err != nil {
 			is.log.Error().Err(err).Str("src", src).Str("dst", dst).Msg("dedupe: unable to rename blob")
 
 			return err
