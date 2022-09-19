@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -18,6 +19,7 @@ import (
 	// Load filesystem driver.
 	_ "github.com/docker/distribution/registry/storage/driver/filesystem"
 	godigest "github.com/opencontainers/go-digest"
+	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/opencontainers/umoci"
 	"github.com/opencontainers/umoci/oci/casext"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
@@ -58,7 +60,7 @@ func (is *LocalStorage) RootDir() string {
 }
 
 func (is *LocalStorage) DirExists(d string) bool {
-	return false
+	return DirExists(d)
 }
 
 type Storage struct {
@@ -124,7 +126,90 @@ func (is *LocalStorage) Unlock(lockStart *time.Time) {
 }
 
 func (is *LocalStorage) initRepo(name string) error {
+	repoDir := path.Join(is.rootDir, name)
+
+	if !utf8.ValidString(name) {
+		is.log.Error().Msg("input is not valid UTF-8")
+
+		return zerr.ErrInvalidRepositoryName
+	}
+
+	// create "blobs" subdir
+	err := ensureDir(path.Join(repoDir, "blobs"), is.log)
+	if err != nil {
+		is.log.Error().Err(err).Msg("error creating blobs subdir")
+
+		return err
+	}
+
+	// create BlobUploadDir subdir
+	err = ensureDir(path.Join(repoDir, BlobUploadDir), is.log)
+	if err != nil {
+		is.log.Error().Err(err).Msg("error creating blob upload subdir")
+
+		return err
+	}
+
+	// "oci-layout" file - create if it doesn't exist
+	ilPath := path.Join(repoDir, ispec.ImageLayoutFile)
+	if _, err := os.Stat(ilPath); err != nil {
+		il := ispec.ImageLayout{Version: ispec.ImageLayoutVersion}
+
+		buf, err := json.Marshal(il)
+		if err != nil {
+			is.log.Panic().Err(err).Msg("unable to marshal JSON")
+		}
+
+		if err := is.writeFile(ilPath, buf); err != nil {
+			is.log.Error().Err(err).Str("file", ilPath).Msg("unable to write file")
+
+			return err
+		}
+	}
+
+	// "index.json" file - create if it doesn't exist
+	indexPath := path.Join(repoDir, "index.json")
+	if _, err := os.Stat(indexPath); err != nil {
+		index := ispec.Index{}
+		index.SchemaVersion = 2
+
+		buf, err := json.Marshal(index)
+		if err != nil {
+			is.log.Panic().Err(err).Msg("unable to marshal JSON")
+		}
+
+		if err := is.writeFile(indexPath, buf); err != nil {
+			is.log.Error().Err(err).Str("file", indexPath).Msg("unable to write file")
+
+			return err
+		}
+	}
+
 	return nil
+}
+
+func (is *LocalStorage) writeFile(filename string, data []byte) error {
+	if !is.commit {
+		return os.WriteFile(filename, data, DefaultFilePerms)
+	}
+
+	fhandle, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, DefaultFilePerms)
+	if err != nil {
+		return err
+	}
+
+	_, err = fhandle.Write(data)
+
+	if err1 := test.Error(fhandle.Sync()); err1 != nil && err == nil {
+		err = err1
+		is.log.Error().Err(err).Str("filename", filename).Msg("unable to sync file")
+	}
+
+	if err1 := test.Error(fhandle.Close()); err1 != nil && err == nil {
+		err = err1
+	}
+
+	return err
 }
 
 // InitRepo creates an image repository under this store.
@@ -375,7 +460,7 @@ func (is *LocalStorage) checkCacheBlob(digest string) (string, error) {
 }
 
 func (is *LocalStorage) copyBlob(repo string, blobPath string, dstRecord string) (int64, error) {
-	if err := is.initRepo(repo); err != nil {
+	if err := is.InitRepo(repo); err != nil {
 		is.log.Error().Err(err).Str("repo", repo).Msg("unable to initialize an empty repo")
 
 		return -1, err
@@ -436,8 +521,92 @@ func (is *LocalStorage) GetBlobContent(repo, digest string) ([]byte, error) {
 	return []byte{}, nil
 }
 
-func (is *LocalStorage) GetReferrers(repo, digest, mediaType string) ([]artifactspec.Descriptor, error) {
-	return nil, zerr.ErrMethodNotSupported
+func (is *LocalStorage) GetReferrers(repo, digest, artifactType string) ([]artifactspec.Descriptor, error) {
+	var lockLatency time.Time
+
+	dir := path.Join(is.rootDir, repo)
+	if !is.DirExists(dir) {
+		return nil, zerr.ErrRepoNotFound
+	}
+
+	gdigest, err := godigest.Parse(digest)
+	if err != nil {
+		is.log.Error().Err(err).Str("digest", digest).Msg("failed to parse digest")
+
+		return nil, zerr.ErrBadBlobDigest
+	}
+
+	is.RLock(&lockLatency)
+	defer is.RUnlock(&lockLatency)
+
+	buf, err := os.ReadFile(path.Join(dir, "index.json"))
+	if err != nil {
+		is.log.Error().Err(err).Str("dir", dir).Msg("failed to read index.json")
+
+		if os.IsNotExist(err) {
+			return nil, zerr.ErrRepoNotFound
+		}
+
+		return nil, err
+	}
+
+	var index ispec.Index
+	if err := json.Unmarshal(buf, &index); err != nil {
+		is.log.Error().Err(err).Str("dir", dir).Msg("invalid JSON")
+
+		return nil, err
+	}
+
+	found := false
+
+	result := []artifactspec.Descriptor{}
+
+	for _, manifest := range index.Manifests {
+		if manifest.MediaType != artifactspec.MediaTypeArtifactManifest {
+			continue
+		}
+
+		p := path.Join(dir, "blobs", manifest.Digest.Algorithm().String(), manifest.Digest.Encoded())
+
+		buf, err = os.ReadFile(p)
+
+		if err != nil {
+			is.log.Error().Err(err).Str("blob", p).Msg("failed to read manifest")
+
+			if os.IsNotExist(err) {
+				return nil, zerr.ErrManifestNotFound
+			}
+
+			return nil, err
+		}
+
+		var artManifest artifactspec.Manifest
+		if err := json.Unmarshal(buf, &artManifest); err != nil {
+			is.log.Error().Err(err).Str("dir", dir).Msg("invalid JSON")
+
+			return nil, err
+		}
+
+		if artifactType != artManifest.ArtifactType || gdigest != artManifest.Subject.Digest {
+			continue
+		}
+
+		result = append(result, artifactspec.Descriptor{
+			MediaType:    manifest.MediaType,
+			ArtifactType: artManifest.ArtifactType,
+			Digest:       manifest.Digest,
+			Size:         manifest.Size,
+			Annotations:  manifest.Annotations,
+		})
+
+		found = true
+	}
+
+	if !found {
+		return nil, zerr.ErrManifestNotFound
+	}
+
+	return result, nil
 }
 
 func (is *LocalStorage) GetIndexContent(repo string) ([]byte, error) {

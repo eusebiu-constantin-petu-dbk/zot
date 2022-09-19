@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	// Load s3 driver.
 	_ "github.com/docker/distribution/registry/storage/driver/s3-aws"
 	godigest "github.com/opencontainers/go-digest"
+	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/rs/zerolog"
 	zerr "zotregistry.io/zot/errors"
@@ -127,6 +129,47 @@ func (is *ObjectStorage) Unlock(lockStart *time.Time) {
 }
 
 func (is *ObjectStorage) initRepo(name string) error {
+	repoDir := path.Join(is.rootDir, name)
+
+	// "oci-layout" file - create if it doesn't exist
+	ilPath := path.Join(repoDir, ispec.ImageLayoutFile)
+	if _, err := is.store.Stat(context.Background(), ilPath); err != nil {
+		il := ispec.ImageLayout{Version: ispec.ImageLayoutVersion}
+
+		buf, err := json.Marshal(il)
+		if err != nil {
+			is.log.Error().Err(err).Msg("unable to marshal JSON")
+
+			return err
+		}
+
+		if err := is.store.PutContent(context.Background(), ilPath, buf); err != nil {
+			is.log.Error().Err(err).Str("file", ilPath).Msg("unable to write file")
+
+			return err
+		}
+	}
+
+	// "index.json" file - create if it doesn't exist
+	indexPath := path.Join(repoDir, "index.json")
+	if _, err := is.store.Stat(context.Background(), indexPath); err != nil {
+		index := ispec.Index{}
+		index.SchemaVersion = 2
+
+		buf, err := json.Marshal(index)
+		if err != nil {
+			is.log.Error().Err(err).Msg("unable to marshal JSON")
+
+			return err
+		}
+
+		if err := is.store.PutContent(context.Background(), indexPath, buf); err != nil {
+			is.log.Error().Err(err).Str("file", ilPath).Msg("unable to write file")
+
+			return err
+		}
+	}
+
 	return nil
 }
 

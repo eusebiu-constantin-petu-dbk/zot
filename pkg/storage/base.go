@@ -135,51 +135,6 @@ func (is *Base) Unlock(lockStart *time.Time) {
 	monitoring.ObserveStorageLockLatency(is.Metrics, latency, is.RootDir(), RWLOCK) // histogram
 }
 
-func (is *Base) initRepo(name string) error {
-	repoDir := path.Join(is.RootDirectory, name)
-
-	// "oci-layout" file - create if it doesn't exist
-	ilPath := path.Join(repoDir, ispec.ImageLayoutFile)
-	if _, err := is.Store.Stat(context.Background(), ilPath); err != nil {
-		il := ispec.ImageLayout{Version: ispec.ImageLayoutVersion}
-
-		buf, err := json.Marshal(il)
-		if err != nil {
-			is.Log.Error().Err(err).Msg("unable to marshal JSON")
-
-			return err
-		}
-
-		if _, err := writeFile(is.Store, ilPath, buf); err != nil {
-			is.Log.Error().Err(err).Str("file", ilPath).Msg("unable to write file")
-
-			return err
-		}
-	}
-
-	// "index.json" file - create if it doesn't exist
-	indexPath := path.Join(repoDir, "index.json")
-	if _, err := is.Store.Stat(context.Background(), indexPath); err != nil {
-		index := ispec.Index{}
-		index.SchemaVersion = 2
-
-		buf, err := json.Marshal(index)
-		if err != nil {
-			is.Log.Error().Err(err).Msg("unable to marshal JSON")
-
-			return err
-		}
-
-		if _, err := writeFile(is.Store, indexPath, buf); err != nil {
-			is.Log.Error().Err(err).Str("file", ilPath).Msg("unable to write file")
-
-			return err
-		}
-	}
-
-	return nil
-}
-
 // InitRepo creates an image repository under this store.
 func (is *Base) InitRepo(name string) error {
 	var lockLatency time.Time
@@ -187,7 +142,7 @@ func (is *Base) InitRepo(name string) error {
 	is.Lock(&lockLatency)
 	defer is.Unlock(&lockLatency)
 
-	return is.initRepo(name)
+	return is.ImageStore.InitRepo(name)
 }
 
 // ValidateRepo validates that the repository layout is complaint with the OCI repo layout.
@@ -496,7 +451,7 @@ func (is *Base) pruneImageManifestsFromIndex(dir string, digest godigest.Digest,
 func (is *Base) PutImageManifest(repo, reference, mediaType string, //nolint: gocyclo
 	body []byte) (string, error,
 ) {
-	if err := is.InitRepo(repo); err != nil {
+	if err := is.ImageStore.InitRepo(repo); err != nil {
 		is.Log.Debug().Err(err).Msg("init repo")
 
 		return "", err
@@ -859,7 +814,7 @@ func (is *Base) BlobUploadPath(repo, uuid string) string {
 
 // NewBlobUpload returns the unique ID for an upload in progress.
 func (is *Base) NewBlobUpload(repo string) (string, error) {
-	if err := is.InitRepo(repo); err != nil {
+	if err := is.ImageStore.InitRepo(repo); err != nil {
 		is.Log.Error().Err(err).Msg("error initializing repo")
 
 		return "", err
@@ -921,7 +876,7 @@ func (is *Base) GetBlobUpload(repo, uuid string) (int64, error) {
 // PutBlobChunkStreamed appends another chunk of data to the specified blob. It returns
 // the number of actual bytes to the blob.
 func (is *Base) PutBlobChunkStreamed(repo, uuid string, body io.Reader) (int64, error) {
-	if err := is.InitRepo(repo); err != nil {
+	if err := is.ImageStore.InitRepo(repo); err != nil {
 		return -1, err
 	}
 
@@ -957,7 +912,7 @@ func (is *Base) PutBlobChunkStreamed(repo, uuid string, body io.Reader) (int64, 
 		return -1, err
 	}
 
-	file.Commit()
+	//file.Commit()
 
 	return int64(nbytes), err
 }
@@ -967,7 +922,7 @@ func (is *Base) PutBlobChunkStreamed(repo, uuid string, body io.Reader) (int64, 
 func (is *Base) PutBlobChunk(repo, uuid string, from, to int64,
 	body io.Reader,
 ) (int64, error) {
-	if err := is.InitRepo(repo); err != nil {
+	if err := is.ImageStore.InitRepo(repo); err != nil {
 		return -1, err
 	}
 
@@ -1138,7 +1093,7 @@ func (is *Base) FinishBlobUpload(repo, uuid string, body io.Reader, digest strin
 
 // FullBlobUpload handles a full blob upload, and no partial session is created.
 func (is *Base) FullBlobUpload(repo string, body io.Reader, digest string) (string, int64, error) {
-	if err := is.InitRepo(repo); err != nil {
+	if err := is.ImageStore.InitRepo(repo); err != nil {
 		return "", -1, err
 	}
 
