@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -56,15 +57,11 @@ type LocalStorage struct {
 }
 
 func (is *LocalStorage) RootDir() string {
-	return ""
+	return is.rootDir
 }
 
 func (is *LocalStorage) DirExists(d string) bool {
 	return DirExists(d)
-}
-
-type Storage struct {
-	Base
 }
 
 // NewObjectStorage returns a new image store backed by cloud storages.
@@ -91,126 +88,56 @@ func NewImageStore(rootDir string, gc bool, gcDelay time.Duration, dedupe, commi
 		imgStore.cache = NewCache(rootDir, CacheDBName, true, log)
 	}
 
-	return &Storage{
-		Base: Base{
-			ImageStore:       imgStore,
-			RootDirectory:    rootDir,
-			Store:            store,
-			Locker:           imgStore.lock,
-			MultiPartUploads: imgStore.multiPartUploads,
-			Metrics:          metrics,
-			Dedupe:           dedupe,
-			Linter:           linter,
-			Cache:            imgStore.cache,
-			GcDelay:          gcDelay,
-			Gc:               gc,
-			Commit:           commit,
-		},
-	}
+	return imgStore
 }
 
 // RLock read-lock.
 func (is *LocalStorage) RLock(lockStart *time.Time) {
+	RLock(lockStart, is.lock)
 }
 
 // RUnlock read-unlock.
 func (is *LocalStorage) RUnlock(lockStart *time.Time) {
+	RUnlock(is, lockStart, is.lock, is.metrics)
 }
 
 // Lock write-lock.
 func (is *LocalStorage) Lock(lockStart *time.Time) {
+	Lock(lockStart, is.lock)
 }
 
 // Unlock write-unlock.
 func (is *LocalStorage) Unlock(lockStart *time.Time) {
+	Unlock(is, lockStart, is.lock, is.metrics)
 }
 
 func (is *LocalStorage) initRepo(name string) error {
-	repoDir := path.Join(is.rootDir, name)
-
-	if !utf8.ValidString(name) {
-		is.log.Error().Msg("input is not valid UTF-8")
-
-		return zerr.ErrInvalidRepositoryName
-	}
-
-	// create "blobs" subdir
-	err := ensureDir(path.Join(repoDir, "blobs"), is.log)
-	if err != nil {
-		is.log.Error().Err(err).Msg("error creating blobs subdir")
-
-		return err
-	}
-
-	// create BlobUploadDir subdir
-	err = ensureDir(path.Join(repoDir, BlobUploadDir), is.log)
-	if err != nil {
-		is.log.Error().Err(err).Msg("error creating blob upload subdir")
-
-		return err
-	}
-
-	// "oci-layout" file - create if it doesn't exist
-	ilPath := path.Join(repoDir, ispec.ImageLayoutFile)
-	if _, err := os.Stat(ilPath); err != nil {
-		il := ispec.ImageLayout{Version: ispec.ImageLayoutVersion}
-
-		buf, err := json.Marshal(il)
-		if err != nil {
-			is.log.Panic().Err(err).Msg("unable to marshal JSON")
-		}
-
-		if err := is.writeFile(ilPath, buf); err != nil {
-			is.log.Error().Err(err).Str("file", ilPath).Msg("unable to write file")
-
-			return err
-		}
-	}
-
-	// "index.json" file - create if it doesn't exist
-	indexPath := path.Join(repoDir, "index.json")
-	if _, err := os.Stat(indexPath); err != nil {
-		index := ispec.Index{}
-		index.SchemaVersion = 2
-
-		buf, err := json.Marshal(index)
-		if err != nil {
-			is.log.Panic().Err(err).Msg("unable to marshal JSON")
-		}
-
-		if err := is.writeFile(indexPath, buf); err != nil {
-			is.log.Error().Err(err).Str("file", indexPath).Msg("unable to write file")
-
-			return err
-		}
-	}
-
-	return nil
+	return InitRepo(is, is.store, name, is.log)
 }
 
-func (is *LocalStorage) writeFile(filename string, data []byte) error {
-	if !is.commit {
-		return os.WriteFile(filename, data, DefaultFilePerms)
-	}
+// func (is *LocalStorage) writeFile(filename string, data []byte) error {
+// 	if !is.commit {
+// 		return os.WriteFile(filename, data, DefaultFilePerms)
+// 	}
 
-	fhandle, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, DefaultFilePerms)
-	if err != nil {
-		return err
-	}
+// 	fhandle, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, DefaultFilePerms)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	_, err = fhandle.Write(data)
+// 	_, err = fhandle.Write(data)
 
-	if err1 := test.Error(fhandle.Sync()); err1 != nil && err == nil {
-		err = err1
-		is.log.Error().Err(err).Str("filename", filename).Msg("unable to sync file")
-	}
+// 	if err1 := test.Error(fhandle.Sync()); err1 != nil && err == nil {
+// 		err = err1
+// 		is.log.Error().Err(err).Str("filename", filename).Msg("unable to sync file")
+// 	}
 
-	if err1 := test.Error(fhandle.Close()); err1 != nil && err == nil {
-		err = err1
-	}
+// 	if err1 := test.Error(fhandle.Close()); err1 != nil && err == nil {
+// 		err = err1
+// 	}
 
-	return err
-}
+// 	return err
+// }
 
 // InitRepo creates an image repository under this store.
 func (is *LocalStorage) InitRepo(name string) error {
@@ -219,60 +146,60 @@ func (is *LocalStorage) InitRepo(name string) error {
 	is.Lock(&lockLatency)
 	defer is.Unlock(&lockLatency)
 
-	return is.initRepo(name)
+	return InitRepo(is, is.store, name, is.log)
 }
 
 // ValidateRepo validates that the repository layout is complaint with the OCI repo layout.
 func (is *LocalStorage) ValidateRepo(name string) (bool, error) {
-	return false, nil
+	return ValidateRepo(is.rootDir, is.store, name, is.log)
 }
 
 // GetRepositories returns a list of all the repositories under this store.
 func (is *LocalStorage) GetRepositories() ([]string, error) {
-	return []string{}, nil
+	return GetRepositories(is, is.store)
 }
 
 // GetImageTags returns a list of image tags available in the specified repository.
 func (is *LocalStorage) GetImageTags(repo string) ([]string, error) {
-	return []string{}, nil
+	return GetImageTags(is, is.store, repo, is.log)
 }
 
 // GetImageManifest returns the image manifest of an image in the specific repository.
 func (is *LocalStorage) GetImageManifest(repo, reference string) ([]byte, string, string, error) {
-	return []byte{}, "", "", nil
+	return GetImageManifest(is, is.store, repo, reference, is.metrics, is.log)
 }
 
 // PutImageManifest adds an image manifest to the repository.
 func (is *LocalStorage) PutImageManifest(repo, reference, mediaType string, //nolint: gocyclo
 	body []byte) (string, error,
 ) {
-	return "", nil
+	return PutImageManifest(is, is.store, repo, reference, mediaType, body, is.linter, is.metrics, is.log)
 }
 
 // DeleteImageManifest deletes the image manifest from the repository.
 func (is *LocalStorage) DeleteImageManifest(repo, reference string) error {
-	return nil
+	return DeleteImageManifest(is, is.store, repo, reference, is.metrics, is.log)
 }
 
 // BlobUploadPath returns the upload path for a blob in this store.
 func (is *LocalStorage) BlobUploadPath(repo, uuid string) string {
-	return ""
+	return BlobUploadPath(is.rootDir, repo, uuid)
 }
 
 // NewBlobUpload returns the unique ID for an upload in progress.
 func (is *LocalStorage) NewBlobUpload(repo string) (string, error) {
-	return "", nil
+	return NewBlobUpload(is, is.store, repo, is.log)
 }
 
 // GetBlobUpload returns the current size of a blob upload.
 func (is *LocalStorage) GetBlobUpload(repo, uuid string) (int64, error) {
-	return 0, nil
+	return GetBlobUpload(is, is.store, is.multiPartUploads, repo, uuid)
 }
 
 // PutBlobChunkStreamed appends another chunk of data to the specified blob. It returns
 // the number of actual bytes to the blob.
 func (is *LocalStorage) PutBlobChunkStreamed(repo, uuid string, body io.Reader) (int64, error) {
-	return 0, nil
+	return PutBlobChunkStreamed(is, is.store, is.multiPartUploads, repo, uuid, body, is.log)
 }
 
 // PutBlobChunk writes another chunk of data to the specified blob. It returns
@@ -280,22 +207,24 @@ func (is *LocalStorage) PutBlobChunkStreamed(repo, uuid string, body io.Reader) 
 func (is *LocalStorage) PutBlobChunk(repo, uuid string, from, to int64,
 	body io.Reader,
 ) (int64, error) {
-	return 0, nil
+	return PutBlobChunk(is, is.store, is.multiPartUploads, repo, uuid, from, to, body, is.log)
 }
 
 // BlobUploadInfo returns the current blob size in bytes.
 func (is *LocalStorage) BlobUploadInfo(repo, uuid string) (int64, error) {
-	return 0, nil
+	return BlobUploadInfo(is, is.store, is.multiPartUploads, repo, uuid, is.log)
 }
 
 // FinishBlobUpload finalizes the blob upload and moves blob the repository.
 func (is *LocalStorage) FinishBlobUpload(repo, uuid string, body io.Reader, digest string) error {
-	return nil
+	cache := is.cache != nil
+	return FinishBlobUpload(is, is.store, is.multiPartUploads, repo, uuid, body, digest, is.dedupe, cache, is.log)
 }
 
 // FullBlobUpload handles a full blob upload, and no partial session is created.
 func (is *LocalStorage) FullBlobUpload(repo string, body io.Reader, digest string) (string, int64, error) {
-	return "", 0, nil
+	cache := is.cache != nil
+	return FullBlobUpload(is, is.store, repo, body, digest, is.dedupe, cache, is.log)
 }
 
 func (is *LocalStorage) DedupeBlob(src string, dstDigest godigest.Digest, dst string) error {
@@ -382,6 +311,14 @@ retry:
 }
 
 func (is *LocalStorage) RunGCRepo(repo string) {
+	is.log.Info().Msg(fmt.Sprintf("executing GC of orphaned blobs for %s", path.Join(is.RootDir(), repo)))
+
+	if err := is.gcRepo(repo); err != nil {
+		errMessage := fmt.Sprintf("error while running GC for %s", path.Join(is.RootDir(), repo))
+		is.log.Error().Err(err).Msg(errMessage)
+	}
+
+	is.log.Info().Msg(fmt.Sprintf("GC completed for %s", path.Join(is.RootDir(), repo)))
 }
 
 // DeleteBlobUpload deletes an existing blob upload that is currently in progress.
@@ -615,7 +552,7 @@ func (is *LocalStorage) GetReferrers(repo, digest, artifactType string) ([]artif
 }
 
 func (is *LocalStorage) GetIndexContent(repo string) ([]byte, error) {
-	return []byte{}, nil
+	return GetIndexContent(is, is.store, repo, is.log)
 }
 
 // DeleteBlob removes the blob from the repository.
@@ -658,7 +595,29 @@ func (is *LocalStorage) DeleteBlob(repo, digest string) error {
 	return nil
 }
 
+func (is *LocalStorage) gcRepo(repo string) error {
+	dir := path.Join(is.RootDir(), repo)
+
+	var lockLatency time.Time
+
+	is.Lock(&lockLatency)
+
+	err := is.GarbageCollect(dir, repo)
+
+	is.Unlock(&lockLatency)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (is *LocalStorage) GarbageCollect(dir string, repo string) error {
+	if !is.gc {
+		return nil
+	}
+
 	oci, err := umoci.OpenLayout(dir)
 	if err := test.Error(err); err != nil {
 		return err

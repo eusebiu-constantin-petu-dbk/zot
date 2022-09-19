@@ -56,10 +56,6 @@ func (is *ObjectStorage) DirExists(d string) bool {
 	return false
 }
 
-type Storage struct {
-	storage.Base
-}
-
 // NewObjectStorage returns a new image store backed by cloud storages.
 // see https://github.com/docker/docker.github.io/tree/master/registry/storage-drivers
 func NewImageStore(rootDir string, cacheDir string, gc bool, gcDelay time.Duration, dedupe, commit bool,
@@ -92,22 +88,7 @@ func NewImageStore(rootDir string, cacheDir string, gc bool, gcDelay time.Durati
 		}
 	}
 
-	return &Storage{
-		Base: storage.Base{
-			ImageStore:       imgStore,
-			RootDirectory:    rootDir,
-			Store:            store,
-			Locker:           imgStore.lock,
-			MultiPartUploads: imgStore.multiPartUploads,
-			Metrics:          metrics,
-			Dedupe:           dedupe,
-			Linter:           linter,
-			Cache:            imgStore.cache,
-			Commit:           commit,
-			GcDelay:          gcDelay,
-			Gc:               false,
-		},
-	}
+	return imgStore
 }
 
 // RLock read-lock.
