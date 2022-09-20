@@ -800,10 +800,8 @@ func DeleteImageManifest(is ImageStore, store driver.StorageDriver, repo, refere
 	if toDelete {
 		p := path.Join(dir, "blobs", dgst.Algorithm().String(), dgst.Encoded())
 
-		err = store.Delete(context.Background(), p)
-		if err != nil {
-			return err
-		}
+		// maybe this was removed by gc, don't check error
+		_ = store.Delete(context.Background(), p)
 	}
 
 	monitoring.SetStorageUsage(metrics, is.RootDir(), repo)
@@ -950,15 +948,21 @@ func PutBlobChunk(is ImageStore, store driver.StorageDriver, multiPartUploads sy
 	defer file.Close()
 
 	if from != file.Size() {
-		// cancel multipart upload
-		multiPartUploads.Delete(blobUploadPath)
+		// // cancel multipart upload
+		// multiPartUploads.Delete(blobUploadPath)
 
-		err := file.Cancel()
-		if err != nil {
-			log.Error().Err(err).Msg("failed to cancel multipart upload")
+		// err := file.Cancel()
+		// if err != nil {
+		// 	log.Error().Err(err).Msg("failed to cancel multipart upload")
 
-			return -1, err
-		}
+		// 	return -1, err
+		// }
+
+		// // put empty file back
+		// err = store.PutContent(context.Background(), blobUploadPath, []byte{})
+		// if err != nil {
+		// 	return -1, zerr.ErrUploadNotFound
+		// }
 
 		log.Error().Int64("expected", from).Int64("actual", file.Size()).
 			Msg("invalid range start for blob upload")

@@ -433,7 +433,7 @@ func (is *LocalStorage) checkCacheBlob(digest string) (string, error) {
 }
 
 func (is *LocalStorage) copyBlob(repo string, blobPath string, dstRecord string) (int64, error) {
-	if err := is.InitRepo(repo); err != nil {
+	if err := is.initRepo(repo); err != nil {
 		is.log.Error().Err(err).Str("repo", repo).Msg("unable to initialize an empty repo")
 
 		return -1, err
