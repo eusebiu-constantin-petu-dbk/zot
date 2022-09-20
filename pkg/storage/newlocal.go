@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	apexlog "github.com/apex/log"
 	// Add filesystem driver support.
 	"github.com/docker/distribution/registry/storage/driver"
 	// Load filesystem driver.
@@ -70,6 +71,14 @@ func NewImageStore(rootDir string, gc bool, gcDelay time.Duration, dedupe, commi
 	log zlog.Logger, metrics monitoring.MetricServer, linter Lint,
 	store driver.StorageDriver,
 ) ImageStore {
+	if _, err := os.Stat(rootDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(rootDir, DefaultDirPerms); err != nil {
+			log.Error().Err(err).Str("rootDir", rootDir).Msg("unable to create root dir")
+
+			return nil
+		}
+	}
+
 	imgStore := &LocalStorage{
 		rootDir:          rootDir,
 		store:            store,
@@ -86,6 +95,21 @@ func NewImageStore(rootDir string, gc bool, gcDelay time.Duration, dedupe, commi
 
 	if dedupe {
 		imgStore.cache = NewCache(rootDir, CacheDBName, true, log)
+	}
+
+	if gc {
+		// we use umoci GC to perform garbage-collection, but it uses its own logger
+		// - so capture those logs, could be useful
+		apexlog.SetLevel(apexlog.DebugLevel)
+		apexlog.SetHandler(apexlog.HandlerFunc(func(entry *apexlog.Entry) error {
+			e := log.Debug()
+			for k, v := range entry.Fields {
+				e = e.Interface(k, v)
+			}
+			e.Msg(entry.Message)
+
+			return nil
+		}))
 	}
 
 	return imgStore
@@ -291,6 +315,13 @@ retry:
 
 			is.log.Debug().Str("blobPath", dst).Str("dstRecord", dstRecord).Msg("dedupe: creating hard link")
 
+			err = ensureDir(filepath.Dir(dst), is.log)
+			if err != nil {
+				is.log.Error().Err(err).Msg("error creating blobs/sha256 dir")
+
+				return err
+			}
+
 			if err := os.Link(dstRecord, dst); err != nil {
 				is.log.Error().Err(err).Str("blobPath", dst).Str("link", dstRecord).Msg("dedupe: unable to hard link")
 
@@ -323,7 +354,7 @@ func (is *LocalStorage) RunGCRepo(repo string) {
 
 // DeleteBlobUpload deletes an existing blob upload that is currently in progress.
 func (is *LocalStorage) DeleteBlobUpload(repo, uuid string) error {
-	return nil
+	return DeleteBlobUpload(is, is.store, repo, uuid, is.log)
 }
 
 // BlobPath returns the repository path of a blob.
@@ -460,7 +491,7 @@ func (is *LocalStorage) GetBlob(repo, digest, mediaType string) (io.ReadCloser, 
 }
 
 func (is *LocalStorage) GetBlobContent(repo, digest string) ([]byte, error) {
-	return []byte{}, nil
+	return GetBlobContent(is, repo, digest, is.log)
 }
 
 func (is *LocalStorage) GetReferrers(repo, digest, artifactType string) ([]artifactspec.Descriptor, error) {

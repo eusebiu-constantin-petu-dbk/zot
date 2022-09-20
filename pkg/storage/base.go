@@ -25,7 +25,6 @@ import (
 	"github.com/sigstore/cosign/pkg/oci/remote"
 	zerr "zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
-	"zotregistry.io/zot/pkg/log"
 )
 
 const (
@@ -1180,7 +1179,7 @@ func FullBlobUpload(is ImageStore, store driver.StorageDriver, repo string, body
 }
 
 // DeleteBlobUpload deletes an existing blob upload that is currently in progress.
-func DeleteBlobUpload(is ImageStore, store driver.StorageDriver, repo, uuid string, log log.Logger) error {
+func DeleteBlobUpload(is ImageStore, store driver.StorageDriver, repo, uuid string, log zerolog.Logger) error {
 	blobUploadPath := is.BlobUploadPath(repo, uuid)
 	if err := store.Delete(context.Background(), blobUploadPath); err != nil {
 		log.Error().Err(err).Str("blobUploadPath", blobUploadPath).Msg("error deleting blob upload")
@@ -1191,7 +1190,7 @@ func DeleteBlobUpload(is ImageStore, store driver.StorageDriver, repo, uuid stri
 	return nil
 }
 
-func GetBlobContent(is ImageStore, repo, digest string, log log.Logger) ([]byte, error) {
+func GetBlobContent(is ImageStore, repo, digest string, log zerolog.Logger) ([]byte, error) {
 	blob, _, err := is.GetBlob(repo, digest, ispec.MediaTypeImageManifest)
 	if err != nil {
 		return []byte{}, err
