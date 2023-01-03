@@ -7,6 +7,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -34,6 +36,7 @@ import (
 	godigest "github.com/opencontainers/go-digest"
 	ispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
+	"github.com/project-zot/mockoidc"
 	"github.com/sigstore/cosign/cmd/cosign/cli/generate"
 	"github.com/sigstore/cosign/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/cmd/cosign/cli/sign"
@@ -51,6 +54,7 @@ import (
 	"zotregistry.io/zot/pkg/common"
 	extconf "zotregistry.io/zot/pkg/extensions/config"
 	"zotregistry.io/zot/pkg/log"
+	"zotregistry.io/zot/pkg/meta/userdb"
 	"zotregistry.io/zot/pkg/storage"
 	storageConstants "zotregistry.io/zot/pkg/storage/constants"
 	"zotregistry.io/zot/pkg/storage/local"
@@ -82,7 +86,44 @@ type (
 		Service string
 		Scope   string
 	}
+
+	apiKeyResponse struct {
+		userdb.APIKeyDetails
+		APIKey string `json:"apiKey"`
+	}
 )
+
+func mockOIDCRun() (mockoidc.MockOIDC, error) {
+	// Create a fresh RSA Private Key for token signing
+	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+
+	// Create an unstarted MockOIDC server
+	mockServer, _ := mockoidc.NewServer(rsaKey)
+
+	// Create the net.Listener on the exact IP:Port you want
+	listener, _ := net.Listen("tcp", "127.0.0.1:0")
+
+	bearerMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(response http.ResponseWriter, req *http.Request) {
+			// stateVal := req.Form.Get("state")
+			header := req.Header.Get("Authorization")
+			parts := strings.SplitN(header, " ", 2)
+			if header != "" {
+				if strings.ToLower(parts[0]) == "bearer" {
+					req.Header.Set("Authorization", strings.Join([]string{"Bearer", parts[1]}, " "))
+				}
+			}
+			next.ServeHTTP(response, req)
+		})
+	}
+
+	err := mockServer.AddMiddleware(bearerMiddleware)
+	if err != nil {
+		return *mockServer, err
+	}
+	// tlsConfig can be nil if you want HTTP
+	return *mockServer, mockServer.Start(listener, nil)
+}
 
 func getCredString(username, password string) string {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), 10)
@@ -2058,6 +2099,29 @@ func TestBearerAuth(t *testing.T) {
 	})
 }
 
+func TestBearerAuthWrongAuthorizer(t *testing.T) {
+	Convey("Make a new authorizer", t, func() {
+		port := test.GetFreePort()
+
+		conf := config.New()
+		conf.HTTP.Port = port
+		conf.HTTP.Auth = &config.AuthConfig{
+			Bearer: &config.BearerConfig{
+				Cert:    "bla",
+				Realm:   "blabla",
+				Service: "blablabla",
+			},
+		}
+		ctlr := makeController(conf, t.TempDir(), "")
+		cm := test.NewControllerManager(ctlr)
+
+		So(func() {
+			ctx := context.Background()
+			cm.RunServer(ctx)
+		}, ShouldPanic)
+	})
+}
+
 func TestBearerAuthWithAllowReadAccess(t *testing.T) {
 	Convey("Make a new controller", t, func() {
 		authTestServer := makeAuthTestServer()
@@ -2282,11 +2346,408 @@ func parseBearerAuthHeader(authHeaderRaw string) *authHeader {
 	return &h
 }
 
+func TestAPIKeysOpenDBError(t *testing.T) {
+	Convey("Test API keys - unable to create database", t, func() {
+		conf := config.New()
+		htpasswdPath := test.MakeHtpasswdFile()
+		defer os.Remove(htpasswdPath)
+
+		mockOIDCServer, err := mockOIDCRun()
+		if err != nil {
+			panic(err)
+		}
+		defer func() {
+			err := mockOIDCServer.Shutdown()
+			if err != nil {
+				panic(err)
+			}
+		}()
+		mockOIDCConfig := mockOIDCServer.Config()
+		conf.HTTP.Auth = &config.AuthConfig{
+			HTPasswd: config.AuthHTPasswd{
+				Path: htpasswdPath,
+			},
+
+			OpenID: &config.OpenIDConfig{
+				Providers: map[string]config.OpenIDProviderConfig{
+					"dex": {
+						ClientID:     mockOIDCConfig.ClientID,
+						ClientSecret: mockOIDCConfig.ClientSecret,
+						KeyPath:      "",
+						Issuer:       mockOIDCConfig.Issuer,
+						Scopes:       []string{"openid", "email"},
+					},
+				},
+				SecureCookieEncryptionKey: "test1234test1234",
+				SecureCookieHashKey:       "test1234test1234",
+				APIKeys:                   true,
+				SessionCookieStorePath:    "",
+			},
+		}
+
+		ctlr := api.NewController(conf)
+		dir := t.TempDir()
+
+		err = os.Chmod(dir, 0o000)
+		So(err, ShouldBeNil)
+
+		ctlr.Config.Storage.RootDirectory = dir
+		defer os.Remove("user.db")
+		cm := test.NewControllerManager(ctlr)
+
+		So(func() {
+			cm.StartServer()
+		}, ShouldPanic)
+	})
+}
+
+func CustomRedirectPolicy(noOfRedirect int) resty.RedirectPolicy {
+	return resty.RedirectPolicyFunc(func(req *http.Request, via []*http.Request) error {
+		if len(via) >= noOfRedirect {
+			return fmt.Errorf("stopped after %d redirects", noOfRedirect) //nolint: goerr113
+		}
+
+		for key, val := range via[len(via)-1].Header {
+			req.Header[key] = val
+		}
+
+		respCookies := req.Response.Cookies()
+		for _, cookie := range respCookies {
+			req.AddCookie(cookie)
+		}
+
+		return nil
+	})
+}
+
+func TestAPIKeys(t *testing.T) {
+	port := test.GetFreePort()
+	baseURL := test.GetBaseURL(port)
+
+	conf := config.New()
+	conf.HTTP.Port = port
+
+	htpasswdPath := test.MakeHtpasswdFile()
+	defer os.Remove(htpasswdPath)
+
+	// mockOIDCServer, err := mockoidc.Run()
+	mockOIDCServer, err := mockOIDCRun()
+	if err != nil {
+		panic(err)
+	}
+
+	defer func() {
+		err := mockOIDCServer.Shutdown()
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	// user := ZotMockUser{
+	// 	Subject: "123", // should stay that way to pass token verifier
+	// 	Email:   "test@test.com",
+	// }
+	// mockOIDCServer.QueueUser(user)
+
+	mockOIDCConfig := mockOIDCServer.Config()
+	conf.HTTP.Auth = &config.AuthConfig{
+		HTPasswd: config.AuthHTPasswd{
+			Path: htpasswdPath,
+		},
+		OpenID: &config.OpenIDConfig{
+			Providers: map[string]config.OpenIDProviderConfig{
+				"dex": {
+					ClientID:     mockOIDCConfig.ClientID,
+					ClientSecret: mockOIDCConfig.ClientSecret,
+					KeyPath:      "",
+					Issuer:       mockOIDCConfig.Issuer,
+					Scopes:       []string{"openid", "email"},
+				},
+			},
+			SecureCookieEncryptionKey: "test1234test1234",
+			SecureCookieHashKey:       "test1234test1234",
+			APIKeys:                   true,
+			SessionCookieStorePath:    "",
+		},
+	}
+	conf.HTTP.AccessControl = &config.AccessControlConfig{}
+
+	ctlr := api.NewController(conf)
+	dir := t.TempDir()
+
+	err = test.CopyFiles("../../test/data", dir)
+	if err != nil {
+		panic(err)
+	}
+	ctlr.Config.Storage.RootDirectory = dir
+
+	cm := test.NewControllerManager(ctlr)
+
+	cm.StartServer()
+	defer cm.StopServer()
+	test.WaitTillServerReady(baseURL)
+
+	defer os.Remove("user.db")
+
+	Convey("Test API keys", t, func() {
+		payload := api.APIKeyPayload{
+			Label:  "test",
+			Scopes: []string{"test"},
+		}
+		reqBody, err := json.Marshal(payload)
+		So(err, ShouldBeNil)
+
+		Convey("ApiKey retrieved", func() {
+			client := resty.New()
+			client.SetRedirectPolicy(CustomRedirectPolicy(20))
+			// first login user
+			resp, err := client.R().
+				SetHeader("X-ZOT-API-CLIENT", "zot-hub").
+				Get(baseURL + constants.DexLoginPath)
+			So(err, ShouldBeNil)
+			So(resp, ShouldNotBeNil)
+
+			client.SetCookies(resp.Cookies())
+
+			// call endpoint with session ( added to client after previous request)
+			resp, err = client.R().
+				SetBody(reqBody).
+				Post(baseURL + "/api/security/apiKey")
+			So(err, ShouldBeNil)
+			So(resp, ShouldNotBeNil)
+			So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+		})
+
+		Convey("Unauthenticated ApiKey request", func() {
+			client := resty.New()
+
+			// call endpoint without session
+			resp, err := client.R().
+				SetBody(reqBody).
+				Post(baseURL + "/api/security/apiKey")
+			So(err, ShouldBeNil)
+			So(resp, ShouldNotBeNil)
+			So(resp.StatusCode(), ShouldEqual, http.StatusUnauthorized)
+		})
+	})
+}
+
+func TestOpenIDMdw(t *testing.T) {
+	port := test.GetFreePort()
+	baseURL := test.GetBaseURL(port)
+	defaultVal := true
+
+	conf := config.New()
+	conf.HTTP.Port = port
+
+	htpasswdPath := test.MakeHtpasswdFile()
+	defer os.Remove(htpasswdPath)
+
+	// mockOIDCServer, err := mockoidc.Run()
+	mockOIDCServer, err := mockOIDCRun()
+	if err != nil {
+		panic(err)
+	}
+
+	defer func() {
+		err := mockOIDCServer.Shutdown()
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	user := mockoidc.DefaultUser()
+
+	mockOIDCConfig := mockOIDCServer.Config()
+	conf.HTTP.Auth = &config.AuthConfig{
+		HTPasswd: config.AuthHTPasswd{
+			Path: htpasswdPath,
+		},
+		OpenID: &config.OpenIDConfig{
+			Providers: map[string]config.OpenIDProviderConfig{
+				"dex": {
+					ClientID:     mockOIDCConfig.ClientID,
+					ClientSecret: mockOIDCConfig.ClientSecret,
+					KeyPath:      "",
+					Issuer:       mockOIDCConfig.Issuer,
+					Scopes:       []string{"openid", "email"},
+				},
+			},
+			SecureCookieEncryptionKey: "test1234test1234",
+			SecureCookieHashKey:       "test1234test1234",
+			APIKeys:                   true,
+			SessionCookieStorePath:    "",
+		},
+	}
+
+	mgmtConfg := &extconf.MgmtConfig{
+		BaseConfig: extconf.BaseConfig{Enable: &defaultVal},
+	}
+	conf.Extensions = &extconf.ExtensionConfig{
+		Mgmt: mgmtConfg,
+	}
+
+	conf.HTTP.AccessControl = &config.AccessControlConfig{
+		Repositories: config.Repositories{
+			AuthorizationAllRepos: config.PolicyGroup{
+				AnonymousPolicy: []string{"read"},
+			},
+		},
+	}
+
+	ctlr := api.NewController(conf)
+	dir := t.TempDir()
+
+	err = test.CopyFiles("../../test/data", dir)
+	if err != nil {
+		panic(err)
+	}
+	ctlr.Config.Storage.RootDirectory = dir
+
+	cm := test.NewControllerManager(ctlr)
+
+	cm.StartServer()
+	defer cm.StopServer()
+	test.WaitTillServerReady(baseURL)
+
+	defer os.Remove("user.db")
+	Convey("browser client requests", t, func() {
+		Convey("catalog retrieved", func() {
+			client := resty.New()
+			client.SetRedirectPolicy(CustomRedirectPolicy(20))
+			// first login user
+			resp, err := client.R().
+				SetHeader("X-ZOT-API-CLIENT", "zot-hub").
+				Get(baseURL + constants.DexLoginPath)
+			So(err, ShouldBeNil)
+			So(resp, ShouldNotBeNil)
+
+			client.SetCookies(resp.Cookies())
+
+			// call endpoint with session ( added to client after previous request)
+			resp, err = client.R().
+				SetHeader("X-ZOT-API-CLIENT", "zot-hub").
+				Get(baseURL + "/v2/_catalog")
+			So(err, ShouldBeNil)
+			So(resp, ShouldNotBeNil)
+			So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+		})
+
+		Convey("unauthenticated catalog request", func() {
+			client := resty.New()
+
+			// call endpoint without session
+			resp, err := client.R().
+				Get(baseURL + "/v2/_catalog")
+			So(err, ShouldBeNil)
+			So(resp, ShouldNotBeNil)
+			So(resp.StatusCode(), ShouldEqual, http.StatusUnauthorized)
+		})
+	})
+
+	Convey("cli client requests", t, func() {
+		payload := api.APIKeyPayload{
+			Label:  "test",
+			Scopes: []string{"test"},
+		}
+		reqBody, err := json.Marshal(payload)
+		So(err, ShouldBeNil)
+
+		// first login and create api key
+		client := resty.New()
+		client.SetRedirectPolicy(CustomRedirectPolicy(20))
+		// first login user
+		resp, err := client.R().
+			SetHeader("X-ZOT-API-CLIENT", "zot-hub").
+			Get(baseURL + constants.DexLoginPath)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+
+		client.SetCookies(resp.Cookies())
+
+		// call endpoint with session ( added to client after previous request)
+		resp, err = client.R().
+			SetBody(reqBody).
+			Post(baseURL + "/api/security/apiKey")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusCreated)
+
+		var apiKeyResponse apiKeyResponse
+		err = json.Unmarshal(resp.Body(), &apiKeyResponse)
+		So(err, ShouldBeNil)
+
+		email := user.Email
+		So(email, ShouldNotBeEmpty)
+
+		// will contain session, so unauthorized
+		resp, err = client.R().
+			SetBasicAuth(email, apiKeyResponse.APIKey).
+			Get(baseURL + "/v2/_catalog")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusUnauthorized)
+
+		// we need new client without session cookie set
+		client = resty.New()
+		client.SetRedirectPolicy(CustomRedirectPolicy(20))
+
+		resp, err = client.R().
+			SetBasicAuth(email, apiKeyResponse.APIKey).
+			Get(baseURL + "/v2/_catalog")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+
+		resp, err = client.R().
+			SetBasicAuth(email, apiKeyResponse.APIKey).
+			Get(baseURL + constants.FullMgmtPrefix)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+
+		resp, err = client.R().
+			SetBasicAuth("invalidEmail", apiKeyResponse.APIKey).
+			Get(baseURL + constants.FullMgmtPrefix)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusUnauthorized)
+
+		resp, err = client.R().
+			SetBasicAuth(email, "noprefixAPIKey").
+			Get(baseURL + "/v2/_catalog")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusUnauthorized)
+
+		resp, err = client.R().
+			SetBasicAuth(email, "zak_notworkingAPIKey").
+			Get(baseURL + "/v2/_catalog")
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusUnauthorized)
+
+		// leverage anonymousPolicy
+		// resp, err = client.R().
+		// 	Get(baseURL + "/v2/_catalog")
+		// So(err, ShouldBeNil)
+		// So(resp, ShouldNotBeNil)
+		// So(resp.StatusCode(), ShouldEqual, http.StatusOK)
+
+		ctlr.UserSecDB.DeleteUserProfile(email)
+		resp, err = client.R().
+			SetBasicAuth(email, apiKeyResponse.APIKey).
+			Get(baseURL + constants.FullMgmtPrefix)
+		So(err, ShouldBeNil)
+		So(resp, ShouldNotBeNil)
+		So(resp.StatusCode(), ShouldEqual, http.StatusInternalServerError)
+	})
+}
+
 func TestAuthorizationWithBasicAuth(t *testing.T) {
 	Convey("Make a new controller", t, func() {
 		port := test.GetFreePort()
 		baseURL := test.GetBaseURL(port)
-
 		conf := config.New()
 		conf.HTTP.Port = port
 		htpasswdPath := test.MakeHtpasswdFile()
