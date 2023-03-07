@@ -21,6 +21,7 @@ import (
 	"zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/api/config"
 	ext "zotregistry.io/zot/pkg/extensions"
+	"zotregistry.io/zot/pkg/extensions/config/sync"
 	"zotregistry.io/zot/pkg/extensions/monitoring"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/meta/repodb"
@@ -48,6 +49,7 @@ type Controller struct {
 	Server          *http.Server
 	Metrics         monitoring.MetricServer
 	CveInfo         ext.CveInfo
+	SyncOnDemand    SyncOnDemand
 	// runtime params
 	chosenPort int // kernel-chosen port
 }
@@ -116,7 +118,9 @@ func (c *Controller) GetPort() int {
 }
 
 func (c *Controller) Run(reloadCtx context.Context) error {
-	c.StartBackgroundTasks(reloadCtx)
+	if err := c.StartBackgroundTasks(reloadCtx); err != nil {
+		return err
+	}
 
 	// setup HTTP API router
 	engine := mux.NewRouter()
@@ -527,16 +531,36 @@ func (c *Controller) LoadNewConfig(reloadCtx context.Context, config *config.Con
 	// reload access control config
 	c.Config.HTTP.AccessControl = config.HTTP.AccessControl
 
-	// Enable extensions if extension config is provided
-	if config.Extensions != nil && config.Extensions.Sync != nil {
-		// reload sync config
+	// reload periodical gc interval
+	c.Config.Storage.GCInterval = config.Storage.GCInterval
+
+	var backupSyncConfig *sync.Config
+	// reload background tasks
+	if config.Extensions != nil {
+		// reload sync extension
+		backupSyncConfig = c.Config.Extensions.Sync
 		c.Config.Extensions.Sync = config.Extensions.Sync
-		ext.EnableSyncExtension(reloadCtx, c.Config, c.RepoDB, c.StoreController, c.Log)
-	} else if c.Config.Extensions != nil {
-		c.Config.Extensions.Sync = nil
+		// reload search cve extension
+		if c.Config.Extensions.Search != nil {
+			// reload only if search is enabled and reloaded config has search extension
+			if *c.Config.Extensions.Search.Enable && config.Extensions.Search != nil {
+				c.Config.Extensions.Search.CVE = config.Extensions.Search.CVE
+			}
+		}
+		// reload scrub extension
+		c.Config.Extensions.Scrub = config.Extensions.Scrub
+	} else {
+		c.Config.Extensions = nil
 	}
 
-	c.Log.Info().Interface("reloaded params", c.Config.Sanitize()).Msg("new configuration settings")
+	if err := c.StartBackgroundTasks(reloadCtx); err != nil {
+		c.Config.Extensions.Sync = backupSyncConfig
+		c.Log.Error().Err(err).Interface("reloaded params", c.Config.Sanitize()).
+			Msg("unable to load new sync configuration settings, please retry with new config")
+	} else {
+		c.Log.Info().Interface("reloaded params", c.Config.Sanitize()).
+			Msg("loaded new configuration settings")
+	}
 }
 
 func (c *Controller) Shutdown() {
@@ -544,7 +568,7 @@ func (c *Controller) Shutdown() {
 	_ = c.Server.Shutdown(ctx)
 }
 
-func (c *Controller) StartBackgroundTasks(reloadCtx context.Context) {
+func (c *Controller) StartBackgroundTasks(reloadCtx context.Context) error {
 	taskScheduler := scheduler.NewScheduler(c.Log)
 	taskScheduler.RunScheduler(reloadCtx)
 
@@ -582,14 +606,26 @@ func (c *Controller) StartBackgroundTasks(reloadCtx context.Context) {
 		}
 	}
 
-	// Enable extensions if extension config is provided for storeController
-	if c.Config.Extensions != nil {
-		if c.Config.Extensions.Sync != nil {
-			ext.EnableSyncExtension(reloadCtx, c.Config, c.RepoDB, c.StoreController, c.Log)
-		}
-	}
-
 	if c.Config.Extensions != nil {
 		ext.EnableScrubExtension(c.Config, c.Log, c.StoreController, taskScheduler)
 	}
+
+	// Enable extensions if extension config is provided for storeController
+	if c.Config.Extensions != nil {
+		if c.Config.Extensions.Sync != nil {
+			syncOnDemand, err := ext.EnableSyncExtension(c.Config, c.RepoDB, c.StoreController, taskScheduler, c.Log)
+			if err != nil {
+				return err
+			}
+
+			c.SyncOnDemand = syncOnDemand
+		}
+	}
+
+	return nil
+}
+
+type SyncOnDemand interface {
+	SyncImage(repo, reference string) error
+	SyncReference(repo string, subjectDigestStr string, referenceType string) error
 }

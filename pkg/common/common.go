@@ -143,13 +143,15 @@ func TypeOf(v interface{}) string {
 
 func MakeHTTPGetRequest(httpClient *http.Client, username string, password string, resultPtr interface{},
 	blobURL string, mediaType string, log log.Logger,
-) ([]byte, int, error) {
+) ([]byte, string, int, error) {
 	req, err := http.NewRequest(http.MethodGet, blobURL, nil) //nolint
 	if err != nil {
-		return nil, 0, err
+		return nil, "", 0, err
 	}
 
-	req.Header.Set("Accept", mediaType)
+	if mediaType != "" {
+		req.Header.Set("Accept", mediaType)
+	}
 
 	if username != "" && password != "" {
 		req.SetBasicAuth(username, password)
@@ -160,7 +162,7 @@ func MakeHTTPGetRequest(httpClient *http.Client, username string, password strin
 		log.Error().Str("errorType", TypeOf(err)).
 			Err(err).Msgf("couldn't get blob: %s", blobURL)
 
-		return nil, -1, err
+		return nil, "", -1, err
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -168,7 +170,7 @@ func MakeHTTPGetRequest(httpClient *http.Client, username string, password strin
 		log.Error().Str("errorType", TypeOf(err)).
 			Err(err).Msgf("couldn't get blob: %s", blobURL)
 
-		return nil, resp.StatusCode, err
+		return nil, "", resp.StatusCode, err
 	}
 
 	defer resp.Body.Close()
@@ -176,7 +178,7 @@ func MakeHTTPGetRequest(httpClient *http.Client, username string, password strin
 	if resp.StatusCode != http.StatusOK {
 		log.Error().Str("status code", fmt.Sprint(resp.StatusCode)).Err(err).Msgf("couldn't get blob: %s", blobURL)
 
-		return nil, resp.StatusCode, errors.New(string(body)) //nolint:goerr113
+		return nil, "", resp.StatusCode, errors.New(string(body)) //nolint:goerr113
 	}
 
 	// read blob
@@ -186,10 +188,10 @@ func MakeHTTPGetRequest(httpClient *http.Client, username string, password strin
 		log.Error().Str("errorType", TypeOf(err)).
 			Err(err).Msgf("couldn't unmarshal blob: %s", blobURL)
 
-		return body, resp.StatusCode, err
+		return body, "", resp.StatusCode, err
 	}
 
-	return body, resp.StatusCode, err
+	return body, resp.Header.Get("Content-Type"), resp.StatusCode, err
 }
 
 func DirExists(d string) bool {
