@@ -1,0 +1,55 @@
+{
+  "distSpecVersion": "1.0.1-dev",
+  "storage": {
+    "rootDirectory": "/tmp/zot",
+    "dedupe": true,
+    "remoteCache": false
+  },
+  "http": {
+    "address": "localhost",
+    "port": "8080",
+    "realm": "zot",
+    "auth": {
+      "htpasswd": {
+        "path": "/tmp/test/htpasswd"
+      },
+      "openid": {
+        "providers": {
+          "dex": {
+            "clientid": "zot-zerver",
+            "clientsecret": "ZXhhbXBsZS1hcHAtc2VjcmV0",
+            "keypath": "",
+            "issuer": "http://localhost:5556/dex",
+            "scopes": "openid,profile,email,groups"
+          }
+        },
+        "apikeys": true,
+        "secureCookieEncryptionKey": "test1234test1234",
+        "secureCookieHashKey": "test1234test1234",
+        "sessionCookieStorePath": ""
+      },
+      "failDelay": 5
+    },
+    "accessControl": {
+      "repositories": {
+        "**": {
+          "policies": [
+            {
+              "users": [
+                "alexandrustan96@yahoo.ro",
+                "test"
+              ],
+              "actions": [
+                "read",
+                "create"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "log": {
+    "level": "debug"
+  }
+}

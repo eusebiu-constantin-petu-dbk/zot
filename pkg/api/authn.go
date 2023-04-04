@@ -23,6 +23,7 @@ import (
 	zerr "zotregistry.io/zot/errors"
 	"zotregistry.io/zot/pkg/api/config"
 	"zotregistry.io/zot/pkg/api/constants"
+	"zotregistry.io/zot/pkg/meta/userdb"
 )
 
 const (
@@ -46,26 +47,516 @@ type BasicAuthMiddleware struct {
 	ctlr        *Controller
 }
 
-func AuthHandler(ctlr *Controller) mux.MiddlewareFunc {
-	var oidmdw *OpenIDAuthMiddleware
+type AuthnMiddleware struct {
+	credMap       map[string]string
+	ldapClient    *LDAPClient
+	openIDEnabled bool
+}
 
-	basicmdw := &BasicAuthMiddleware{
-		ctlr: ctlr,
-	}
+func AuthHandler(ctlr *Controller) mux.MiddlewareFunc {
+	// var oidmdw *OpenIDAuthMiddleware
+
+	// basicmdw := &BasicAuthMiddleware{
+	// 	ctlr: ctlr,
+	// }
+
+	authnMdw := &AuthnMiddleware{}
 
 	if isBearerAuthEnabled(ctlr.Config) {
 		return bearerAuthHandler(ctlr)
 	}
 
 	if isOpenIDAuthEnabled(ctlr.Config) {
-		oidmdw = &OpenIDAuthMiddleware{
-			ctlr: ctlr,
-		}
+		// oidmdw = &OpenIDAuthMiddleware{
+		// 	ctlr: ctlr,
+		// }
 
-		basicmdw.SetNext(oidmdw)
+		// basicmdw.SetNext(oidmdw)
+		authnMdw.openIDEnabled = true
 	}
 
-	return basicmdw.MdwFunc(true)
+	return authnMdw.TryAuthnHandlers(ctlr)
+}
+
+func (am *AuthnMiddleware) openIDAuthnLogic(ctlr *Controller, response http.ResponseWriter,
+	request *http.Request,
+) (bool, http.ResponseWriter, *http.Request) {
+	passed := false
+	// // needed for checking whether the current mdw work is finished or not
+	// canNextBegin := false
+
+	// if !prevMdwFinished {
+	// 	oidmdw.ctlr.Log.Info().
+	// 		Msg("previous middleware work not finished, not proceeding with this current one")
+	// 	// done = false
+	// 	return
+	// }
+
+	// defer func(next http.Handler) {
+	// 	if oidmdw.nextAuthMdw != nil {
+	// 		oidmdw.nextAuthMdw.MdwFunc(canNextBegin)(next).ServeHTTP(response, request)
+	// 	} else if canNextBegin {
+	// 		authFail(response, realm, delay)
+	// 	}
+	// }(next)
+
+	clientHeader := request.Header.Get("X-ZOT-API-CLIENT")
+	acCtrlr := NewAccessController(ctlr.Config)
+
+	session, err := ctlr.CookieStore.Get(request, "session")
+	if err != nil {
+		// ctlr.Log.Err(err).Msg("can not decode existing session")
+
+		// http.Error(response, "invalid session encoding", http.StatusInternalServerError)
+
+		return passed, nil, nil
+	}
+
+	if clientHeader != "zot-hub" { //nolint:nestif
+		if !session.IsNew {
+			// ctlr.Log.Error().Msg("request is missing client header")
+			// response.WriteHeader(http.StatusUnauthorized)
+			return passed, nil, nil
+		}
+		// get api token from Authorization header - cli client use case
+
+		// first, API key authn, db lookup
+		if ctlr.Config.HTTP.Auth.OpenID.APIKeys {
+			var apiKey string
+
+			// we want to bypass auth for mgmt route
+			isMgmtRequested := request.RequestURI == constants.FullMgmtPrefix
+			_, cookieErr := request.Cookie("session")
+			if request.Header.Get("Authorization") == "" {
+				if (anonymousPolicyExists(ctlr.Config.HTTP.AccessControl) &&
+					errors.Is(cookieErr, http.ErrNoCookie)) || isMgmtRequested {
+
+					acCtx := acCtrlr.getContext("", []string{}, request)
+					// next.ServeHTTP(response, request.WithContext(acCtx)) //nolint:contextcheck
+					passed = true
+
+					return passed, response, request.WithContext(acCtx)
+
+				}
+			}
+
+			username, apiKey, err := getUsernamePasswordBasicAuth(request)
+			if err != nil {
+				// ctlr.Log.Error().Err(err).Msg("failed to parse Basic authorization header")
+				// done = false
+				// authFail(response, realm, delay)
+
+				return passed, nil, nil
+				// return
+			}
+
+			// some client tools might send Authorization: Basic Og== (decoded into ":")
+			// empty username and password
+			if username == "" && apiKey == "" {
+				if (anonymousPolicyExists(ctlr.Config.HTTP.AccessControl) &&
+					errors.Is(cookieErr, http.ErrNoCookie)) || isMgmtRequested {
+					// Process request
+					acCtx := acCtrlr.getContext("", []string{}, request)
+					// next.ServeHTTP(response, request.WithContext(acCtx)) //nolint:contextcheck
+
+					passed = true
+
+					return passed, response, request.WithContext(acCtx)
+				}
+			}
+
+			if apiKey != "" {
+				if !strings.HasPrefix(apiKey, constants.APIKeysPrefix) {
+					// ctlr.Log.Error().Msg("api token has invalid format")
+					// response.WriteHeader(http.StatusUnauthorized)
+
+					return passed, nil, nil
+				}
+			}
+
+			trimmedAPIKey := strings.TrimPrefix(apiKey, constants.APIKeysPrefix)
+			hashedKey := hashUUID(trimmedAPIKey)
+			email, err := ctlr.UserSecDB.GetUserAPIKeyInfo(hashedKey)
+			if err != nil {
+				// ctlr.Log.Err(err).Msgf("can not get user info for hashed key %s from DB", hashedKey)
+				// response.WriteHeader(http.StatusUnauthorized)
+
+				return passed, nil, nil
+			}
+
+			if email == username {
+				// userProfile, err := ctlr.UserSecDB.GetUserProfile(email)
+				userProfile, err := ctlr.UserSecDB.GetUserProfile(email)
+				if err != nil {
+					// ctlr.Log.Err(err).Msg("can not get user profile from DB")
+					// response.WriteHeader(http.StatusInternalServerError)
+
+					return passed, nil, nil
+				}
+				acCtx := acCtrlr.getContext(username, userProfile.Groups, request)
+				// // hashedAPIkey entry in DB exists
+				// next.ServeHTTP(response, request.WithContext(acCtx)) //nolint:contextcheck
+
+				passed = true
+
+				return passed, response, request.WithContext(acCtx)
+			}
+		}
+
+		return passed, nil, nil
+	}
+
+	if session.IsNew {
+		// response.WriteHeader(http.StatusUnauthorized)
+
+		return passed, nil, nil
+	}
+
+	authenticated := session.Values["authStatus"]
+	if authenticated != true {
+		// response.WriteHeader(http.StatusUnauthorized)
+
+		return passed, nil, nil
+	}
+	email, ok := session.Values["user"].(string)
+	if !ok {
+		// ctlr.Log.Err(err).Msg("can not get `user` session value")
+		// response.WriteHeader(http.StatusInternalServerError)
+
+		return passed, nil, nil
+	}
+
+	if email != "" {
+		userProfile, err := ctlr.UserSecDB.GetUserProfile(email)
+		if err != nil {
+			// ctlr.Log.Err(err).Msg("can not get user profile from DB")
+			// response.WriteHeader(http.StatusInternalServerError)
+
+			return passed, nil, nil
+		}
+		acCtx := acCtrlr.getContext(email, userProfile.Groups, request)
+		// // allow data to be written, now that mdw has passed
+
+		// next.ServeHTTP(response, request.WithContext(acCtx)) //nolint:contextcheck
+		passed = true
+
+		return passed, response, request.WithContext(acCtx)
+	}
+
+	return passed, nil, nil
+}
+
+func (am *AuthnMiddleware) basicAuthnLogic(ctlr *Controller, response http.ResponseWriter,
+	request *http.Request,
+) (bool, http.ResponseWriter, *http.Request) {
+	passed := false
+	cookieStore := ctlr.CookieStore
+
+	// we want to bypass auth for mgmt route
+	isMgmtRequested := request.RequestURI == constants.FullMgmtPrefix
+
+	acCtrlr := NewAccessController(ctlr.Config)
+	_, cookieErr := request.Cookie("session")
+	if request.Header.Get("Authorization") == "" {
+		if (anonymousPolicyExists(ctlr.Config.HTTP.AccessControl) &&
+			errors.Is(cookieErr, http.ErrNoCookie)) || isMgmtRequested {
+			acCtx := acCtrlr.getContext("", []string{}, request)
+			// Process request
+			// next.ServeHTTP(response, request.WithContext(acCtx)) //nolint:contextcheck
+
+			passed = true
+			return passed, response, request.WithContext(acCtx)
+		}
+	}
+
+	identity, passphrase, err := getUsernamePasswordBasicAuth(request)
+	if err != nil {
+		// ctlr.Log.Error().Err(err).Msg("failed to parse authorization header")
+		// if cookieErr == nil { // so session cookie exists
+		// 	canNextBegin = true
+
+		// 	return
+		// }
+
+		// authFail(response, realm, delay)
+		return passed, nil, nil
+	}
+
+	// some client tools might send Authorization: Basic Og== (decoded into ":")
+	// empty username and password
+	if identity == "" && passphrase == "" {
+		if (anonymousPolicyExists(ctlr.Config.HTTP.AccessControl) &&
+			errors.Is(cookieErr, http.ErrNoCookie)) || isMgmtRequested {
+			acCtx := acCtrlr.getContext("", []string{}, request)
+			// next.ServeHTTP(response, request.WithContext(acCtx)) //nolint:contextcheck
+			passed = true
+
+			return passed, response, request.WithContext(acCtx)
+		}
+	}
+
+	// first, HTTPPassword authN (which is local)
+	passphraseHash, ok := am.credMap[identity]
+	if ok {
+		if err := bcrypt.CompareHashAndPassword([]byte(passphraseHash), []byte(passphrase)); err == nil {
+			// Process request
+			var userGroups []string
+
+			if ctlr.Config.HTTP.AccessControl != nil {
+				userGroups = acCtrlr.getUserGroups(identity)
+			}
+
+			// canNextBegin = false
+			acCtx := acCtrlr.getContext(identity, userGroups, request)
+			// next.ServeHTTP(response, request.WithContext(acCtx)) //nolint:contextcheck
+			// passed = true
+
+			///// try sessions
+			session, err := cookieStore.Get(request, "session")
+			if err != nil {
+				ctlr.Log.Error().Err(err).Msg("invalid encoding session exists although it should not")
+				// http.Error(w, err.Error(), http.StatusInternalServerError)
+				session.Options.MaxAge = -1 // kill the session
+	
+				err = session.Save(request, response)
+				if err != nil {
+					ctlr.Log.Error().Err(err).Msg("couldn't kill the session")
+	
+					response.WriteHeader(http.StatusInternalServerError)
+	
+					return passed, response, request
+				}
+	
+				response.WriteHeader(http.StatusUnauthorized)
+	
+				return passed, response, request
+			}
+	
+			session.Options.Secure = true
+			session.Options.HttpOnly = true
+			session.Options.SameSite = http.SameSiteDefaultMode
+			session.Values["authStatus"] = true
+			session.Values["user"] = identity
+	
+			// let the session set its own id
+			err = session.Save(request, response)
+			if err != nil {
+				http.Error(response, err.Error(), http.StatusInternalServerError)
+	
+				return passed, response, request
+			}
+	
+			var groups []string
+
+	
+			userProfile := userdb.UserProfile{}
+	
+			oldUserProfile, err := ctlr.UserSecDB.GetUserProfile(identity)
+			if err != nil {
+				if errors.Is(err, zerr.ErrUserProfileNotFound) {
+					err := ctlr.UserSecDB.DeleteUserProfile(identity)
+					if err != nil {
+						ctlr.Log.Error().Err(err).Msg("couldn't delete the user profile")
+						response.WriteHeader(http.StatusInternalServerError)
+	
+						return passed, response, request
+					}
+				}
+			}
+	
+			if oldUserProfile.APIKeys != nil && len(oldUserProfile.APIKeys) != 0 {
+				userProfile.APIKeys = oldUserProfile.APIKeys
+			}
+			userProfile.Groups = groups
+	
+			err = ctlr.UserSecDB.SetUserProfile(identity, userProfile)
+			if err != nil {
+				ctlr.Log.Error().Err(err).Msgf("couldn't set the user profile for email %s", identity)
+				response.WriteHeader(http.StatusInternalServerError)
+	
+				return passed, response, request
+			}
+	
+			ctlr.Log.Info().Msgf("user profile set successfully for email %s", identity)
+	
+
+			/////////
+			passed = true
+
+			return passed, response, request.WithContext(acCtx)
+		}
+	}
+
+	// next, LDAP if configured (network-based which can lose connectivity)
+	if ctlr.Config.HTTP.Auth != nil && ctlr.Config.HTTP.Auth.LDAP != nil {
+		ok, _, ldapgroups, err := am.ldapClient.Authenticate(identity, passphrase)
+		if ok && err == nil {
+			// Process request
+			var userGroups []string
+
+			if ctlr.Config.HTTP.AccessControl != nil {
+				userGroups = acCtrlr.getUserGroups(identity)
+			}
+
+			userGroups = append(userGroups, ldapgroups...)
+
+			acCtx := acCtrlr.getContext(identity, userGroups, request)
+			// next.ServeHTTP(response, request.WithContext(acCtx)) //nolint:contextcheck
+
+			session, err := cookieStore.Get(request, "session")
+			if err != nil {
+				ctlr.Log.Error().Err(err).Msg("invalid encoding session exists although it should not")
+				// http.Error(w, err.Error(), http.StatusInternalServerError)
+				session.Options.MaxAge = -1 // kill the session
+	
+				err = session.Save(request, response)
+				if err != nil {
+					ctlr.Log.Error().Err(err).Msg("couldn't kill the session")
+	
+					response.WriteHeader(http.StatusInternalServerError)
+	
+					return passed, response, request
+				}
+	
+				response.WriteHeader(http.StatusUnauthorized)
+	
+				return passed, response, request
+			}
+	
+			session.Options.Secure = true
+			session.Options.HttpOnly = true
+			session.Options.SameSite = http.SameSiteDefaultMode
+			session.Values["authStatus"] = true
+			session.Values["user"] = identity
+	
+			// let the session set its own id
+			err = session.Save(request, response)
+			if err != nil {
+				http.Error(response, err.Error(), http.StatusInternalServerError)
+	
+				return passed, response, request
+			}
+
+			passed = true
+
+			return passed, response, request.WithContext(acCtx)
+		}
+	}
+
+	return passed, nil, nil
+}
+
+func (am *AuthnMiddleware) TryAuthnHandlers(ctlr *Controller) mux.MiddlewareFunc {
+	realm := ctlr.Config.HTTP.Realm
+	if realm == "" {
+		realm = "Authorization Required"
+	}
+
+	realm = "Basic realm=" + strconv.Quote(realm)
+
+	// no password based authN, if neither LDAP nor HTTP BASIC is enabled
+	if ctlr.Config.HTTP.Auth == nil ||
+		(ctlr.Config.HTTP.Auth.HTPasswd.Path == "" && ctlr.Config.HTTP.Auth.LDAP == nil &&
+			ctlr.Config.HTTP.Auth.OpenID == nil) {
+		return noPasswdAuth(ctlr.Config)
+	}
+
+	am.credMap = make(map[string]string)
+
+	delay := ctlr.Config.HTTP.Auth.FailDelay
+
+	// var ldapClient *LDAPClient
+
+	if ctlr.Config.HTTP.Auth != nil {
+		if ctlr.Config.HTTP.Auth.LDAP != nil {
+			ldapConfig := ctlr.Config.HTTP.Auth.LDAP
+			am.ldapClient = &LDAPClient{
+				Host:               ldapConfig.Address,
+				Port:               ldapConfig.Port,
+				UseSSL:             !ldapConfig.Insecure,
+				SkipTLS:            !ldapConfig.StartTLS,
+				Base:               ldapConfig.BaseDN,
+				BindDN:             ldapConfig.BindDN,
+				UserGroupAttribute: ldapConfig.UserGroupAttribute, // from config
+				BindPassword:       ldapConfig.BindPassword,
+				UserFilter:         fmt.Sprintf("(%s=%%s)", ldapConfig.UserAttribute),
+				InsecureSkipVerify: ldapConfig.SkipVerify,
+				ServerName:         ldapConfig.Address,
+				Log:                ctlr.Log,
+				SubtreeSearch:      ldapConfig.SubtreeSearch,
+			}
+
+			if ctlr.Config.HTTP.Auth.LDAP.CACert != "" {
+				caCert, err := os.ReadFile(ctlr.Config.HTTP.Auth.LDAP.CACert)
+				if err != nil {
+					panic(err)
+				}
+
+				caCertPool := x509.NewCertPool()
+
+				if !caCertPool.AppendCertsFromPEM(caCert) {
+					panic(zerr.ErrBadCACert)
+				}
+
+				am.ldapClient.ClientCAs = caCertPool
+			} else {
+				// default to system cert pool
+				caCertPool, err := x509.SystemCertPool()
+				if err != nil {
+					panic(zerr.ErrBadCACert)
+				}
+
+				am.ldapClient.ClientCAs = caCertPool
+			}
+		}
+
+		if ctlr.Config.HTTP.Auth.HTPasswd.Path != "" {
+			credsFile, err := os.Open(ctlr.Config.HTTP.Auth.HTPasswd.Path)
+			if err != nil {
+				panic(err)
+			}
+			defer credsFile.Close()
+
+			scanner := bufio.NewScanner(credsFile)
+
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.Contains(line, ":") {
+					tokens := strings.Split(scanner.Text(), ":")
+					am.credMap[tokens[0]] = tokens[1]
+				}
+			}
+		}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			if request.Method == http.MethodOptions {
+				response.WriteHeader(http.StatusNoContent)
+
+				return
+			}
+
+			cloneReq := request
+			cloneResp := response
+			passed, cloneResp, cloneReq := am.basicAuthnLogic(ctlr, cloneResp, cloneReq)
+			if passed && cloneResp != nil && cloneReq != nil {
+				next.ServeHTTP(cloneResp, cloneReq) //nolint:contextcheck
+			}
+
+			if am.openIDEnabled {
+				cloneReq := request
+				cloneResp := response
+				passed, cloneResp, cloneReq := am.openIDAuthnLogic(ctlr, cloneResp, cloneReq)
+				if passed && cloneResp != nil && cloneReq != nil {
+					next.ServeHTTP(cloneResp, cloneReq) //nolint:contextcheck
+				}
+			}
+
+			if !passed {
+				authFail(response, realm, delay)
+			}
+		})
+	}
 }
 
 func bearerAuthHandler(ctlr *Controller) mux.MiddlewareFunc {
@@ -312,8 +803,8 @@ func (oidmdw *OpenIDAuthMiddleware) MdwFunc(prevMdwFinished bool) mux.Middleware
 	}
 }
 
-func NewOpenIDAuthMiddleware(ctlr *Controller) *OpenIDAuthMiddleware{
-	if ctlr!= nil {
+func NewOpenIDAuthMiddleware(ctlr *Controller) *OpenIDAuthMiddleware {
+	if ctlr != nil {
 		return &OpenIDAuthMiddleware{
 			ctlr: ctlr,
 		}
@@ -322,8 +813,8 @@ func NewOpenIDAuthMiddleware(ctlr *Controller) *OpenIDAuthMiddleware{
 	return nil
 }
 
-func NewBasicAuthMiddleware(ctlr *Controller) *BasicAuthMiddleware{
-	if ctlr!= nil {
+func NewBasicAuthMiddleware(ctlr *Controller) *BasicAuthMiddleware {
+	if ctlr != nil {
 		return &BasicAuthMiddleware{
 			ctlr: ctlr,
 		}
