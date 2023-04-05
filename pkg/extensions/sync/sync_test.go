@@ -1696,6 +1696,11 @@ func TestBasicAuth(t *testing.T) {
 			resp, err := destClient.R().Get(destBaseURL + "/v2/" + testImage + "/manifests/" + testImageTag)
 			So(err, ShouldBeNil)
 			So(resp.StatusCode(), ShouldEqual, http.StatusNotFound)
+
+			data, err := os.ReadFile(dctlr.Config.Log.Output)
+			So(err, ShouldBeNil)
+
+			t.Logf("downstream log: %s", string(data))
 		})
 
 		Convey("Verify on demand sync with basic auth", func() {
@@ -5345,12 +5350,12 @@ func TestSyncOCIArtifactsWithTag(t *testing.T) {
 				panic(err)
 			}
 
-			// if !found {
-			data, err := os.ReadFile(dctlr.Config.Log.Output)
-			So(err, ShouldBeNil)
+			if !found {
+				data, err := os.ReadFile(dctlr.Config.Log.Output)
+				So(err, ShouldBeNil)
 
-			t.Logf("downstream log: %s", string(data))
-			// }
+				t.Logf("downstream log: %s", string(data))
+			}
 
 			So(found, ShouldBeTrue)
 		})
