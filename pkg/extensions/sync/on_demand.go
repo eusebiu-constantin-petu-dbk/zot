@@ -92,7 +92,7 @@ func (onDemand *BaseOnDemand) SyncReference(repo string, subjectDigestStr string
 			return err
 		}
 
-		err = service.SyncReference(repo, subjectDigestStr, referenceType)
+		err = service.SyncReferenceOnDemand(repo, subjectDigestStr, referenceType)
 		if err != nil {
 			continue
 		} else {
@@ -113,7 +113,7 @@ func (onDemand *BaseOnDemand) syncImage(repo, reference string, syncResult chan 
 			return
 		}
 
-		err = service.SyncImage(repo, reference)
+		err = service.SyncImageOnDemand(repo, reference)
 		if err != nil {
 			if errors.Is(err, zerr.ErrManifestNotFound) ||
 				errors.Is(err, zerr.ErrSyncImageFilteredOut) ||
@@ -151,7 +151,7 @@ func (onDemand *BaseOnDemand) syncImage(repo, reference string, syncResult chan 
 					time.Sleep(retryOptions.Delay)
 
 					if err = retry.RetryIfNecessary(context.Background(), func() error {
-						err := service.SyncImage(repo, reference)
+						err := service.SyncImageOnDemand(repo, reference)
 
 						return err
 					}, retryOptions); err != nil {

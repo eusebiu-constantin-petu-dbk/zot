@@ -101,6 +101,10 @@ func (cm ContentManager) GetRepoSource(repo string) string {
 // utilies functions.
 func (cm ContentManager) getContentByUpstreamRepo(repo string) *syncconf.Content {
 	for _, content := range cm.contents {
+		if len(content.Images) > 0 {
+			return &content
+		}
+
 		var prefix string
 		// handle prefixes starting with '/'
 		if strings.HasPrefix(content.Prefix, "/") {

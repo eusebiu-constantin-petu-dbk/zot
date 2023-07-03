@@ -22,12 +22,16 @@ import (
 type Service interface {
 	// Get next repo from remote /v2/_catalog, will return empty string when there is no repo left.
 	GetNextRepo(lastRepo string) (string, error) // used by task scheduler
+	// Get next repo and its tags from config, sync periodically specific images from config
+	GetNextRepoTags(lastRepo string) (string, []string) // used by task scheduler
 	// Sync a repo with all of its tags and references (signatures, artifacts, sboms) into ImageStore.
 	SyncRepo(repo string) error // used by periodically sync
-	// Sync an image (repo:tag || repo:digest) into ImageStore.
-	SyncImage(repo, reference string) error // used by sync on demand
+	// Sync an image periodically with all of its references (signatures, artifacts, sboms) into ImageStore.
+	SyncImage(repo, reference string) error // used by periodically sync to sync specifc images from config
+	// Sync an image on demand (repo:tag || repo:digest) with all of its references into ImageStore.
+	SyncImageOnDemand(repo, reference string) error // used by sync on demand
 	// Sync a single reference for an image.
-	SyncReference(repo string, subjectDigestStr string, referenceType string) error // used by sync on demand
+	SyncReferenceOnDemand(repo string, subjectDigestStr string, referenceType string) error // used by sync on demand
 	// Remove all internal catalog entries.
 	ResetCatalog() // used by scheduler to empty out the catalog after a sync periodically roundtrip finishes
 	// Sync supports multiple urls per registry, before a sync repo/image/ref 'ping' each url.
@@ -72,15 +76,16 @@ type Local interface {
 	CommitImage(imageReference types.ImageReference, repo, tag string) error
 }
 
-type TaskGenerator struct {
+// periodically sync task generator
+type RepoGenerator struct {
 	Service  Service
 	lastRepo string
 	done     bool
 	log      log.Logger
 }
 
-func NewTaskGenerator(service Service, log log.Logger) *TaskGenerator {
-	return &TaskGenerator{
+func NewRepoGenerator(service Service, log log.Logger) *RepoGenerator {
+	return &RepoGenerator{
 		Service:  service,
 		done:     false,
 		lastRepo: "",
@@ -88,7 +93,7 @@ func NewTaskGenerator(service Service, log log.Logger) *TaskGenerator {
 	}
 }
 
-func (gen *TaskGenerator) GenerateTask() (scheduler.Task, error) {
+func (gen *RepoGenerator) GenerateTask() (scheduler.Task, error) {
 	if err := gen.Service.SetNextAvailableURL(); err != nil {
 		return nil, err
 	}
@@ -99,7 +104,7 @@ func (gen *TaskGenerator) GenerateTask() (scheduler.Task, error) {
 	}
 
 	if repo == "" {
-		gen.log.Info().Msg("sync: finished syncing all repos")
+		gen.log.Info().Msg("sync: finished syncing all repos from catalog")
 		gen.done = true
 
 		return nil, nil
@@ -110,11 +115,11 @@ func (gen *TaskGenerator) GenerateTask() (scheduler.Task, error) {
 	return newSyncRepoTask(gen.lastRepo, gen.Service), nil
 }
 
-func (gen *TaskGenerator) IsDone() bool {
+func (gen *RepoGenerator) IsDone() bool {
 	return gen.done
 }
 
-func (gen *TaskGenerator) Reset() {
+func (gen *RepoGenerator) Reset() {
 	gen.lastRepo = ""
 	gen.Service.ResetCatalog()
 	gen.done = false
@@ -131,4 +136,78 @@ func newSyncRepoTask(repo string, service Service) *syncRepoTask {
 
 func (srt *syncRepoTask) DoWork() error {
 	return srt.service.SyncRepo(srt.repo)
+}
+
+// periodically sync specific images generator
+type RepoTagsGenerator struct {
+	Service  Service
+	lastRepo string
+	done     bool
+	log      log.Logger
+}
+
+func NewRepoTagsGenerator(service Service, log log.Logger) *RepoTagsGenerator {
+	return &RepoTagsGenerator{
+		Service:  service,
+		done:     false,
+		lastRepo: "",
+		log:      log,
+	}
+}
+
+func (gen *RepoTagsGenerator) GenerateTask() (scheduler.Task, error) {
+	if err := gen.Service.SetNextAvailableURL(); err != nil {
+		return nil, err
+	}
+
+	repo, references := gen.Service.GetNextRepoTags(gen.lastRepo)
+	if repo == "" {
+		gen.log.Info().Msg("sync: finished syncing all repos from config")
+		gen.done = true
+
+		return nil, nil
+	}
+
+	gen.lastRepo = repo
+
+	return newSyncRepoTagsTask(repo, references, gen.Service), nil
+}
+
+func (gen *RepoTagsGenerator) IsDone() bool {
+	return gen.done
+}
+
+func (gen *RepoTagsGenerator) Reset() {
+	gen.lastRepo = ""
+	gen.done = false
+}
+
+type syncRepoTagsTask struct {
+	repo       string
+	references []string
+	service    Service
+}
+
+func newSyncRepoTagsTask(repo string, references []string, service Service) *syncRepoTagsTask {
+	return &syncRepoTagsTask{repo, references, service}
+}
+
+func (sit *syncRepoTagsTask) DoWork() error {
+	// if no references provided, sync all repo's tags
+	if len(sit.references) == 0 {
+		err := sit.service.SyncRepo(sit.repo)
+		if err != nil {
+			return err
+		}
+	}
+
+	// otherwise sync only given references
+	for _, reference := range sit.references {
+		err := sit.service.SyncImage(sit.repo, reference)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -32,9 +32,10 @@ type BaseService struct {
 	storeController storage.StoreController
 	repoDB          repodb.RepoDB
 	repositories    []string
-	references      references.References
-	client          *client.Client
-	log             log.Logger
+
+	references references.References
+	client     *client.Client
+	log        log.Logger
 }
 
 func New(opts syncconf.RegistryConfig, credentialsFilepath string,
@@ -172,6 +173,40 @@ func (service *BaseService) getNextRepoFromCatalog(lastRepo string) string {
 	return nextRepo
 }
 
+func (service *BaseService) GetNextRepoTags(lastRepo string) (string, []string) {
+	var found bool
+
+	var nextRepo string
+
+	var repoTags []string
+
+	for _, content := range service.config.Content {
+		for repo, tags := range content.Images {
+			if lastRepo == "" {
+				nextRepo = repo
+				repoTags = tags
+
+				break
+			}
+
+			if repo == lastRepo {
+				found = true
+
+				continue
+			}
+
+			if found {
+				nextRepo = repo
+				repoTags = tags
+
+				break
+			}
+		}
+	}
+
+	return nextRepo, repoTags
+}
+
 func (service *BaseService) GetNextRepo(lastRepo string) (string, error) {
 	var err error
 
@@ -203,7 +238,7 @@ func (service *BaseService) GetNextRepo(lastRepo string) (string, error) {
 }
 
 // SyncReference on demand.
-func (service *BaseService) SyncReference(repo string, subjectDigestStr string, referenceType string) error {
+func (service *BaseService) SyncReferenceOnDemand(repo string, subjectDigestStr string, referenceType string) error {
 	remoteRepo := repo
 
 	remoteURL := service.client.GetConfig().URL
@@ -225,7 +260,7 @@ func (service *BaseService) SyncReference(repo string, subjectDigestStr string, 
 }
 
 // SyncImage on demand.
-func (service *BaseService) SyncImage(repo, reference string) error {
+func (service *BaseService) SyncImageOnDemand(repo, reference string) error {
 	remoteRepo := repo
 
 	remoteURL := service.client.GetConfig().URL
@@ -249,6 +284,41 @@ func (service *BaseService) SyncImage(repo, reference string) error {
 	}
 
 	err = service.references.SyncAll(repo, remoteRepo, manifestDigest.String())
+	if err != nil && !errors.Is(err, zerr.ErrSyncReferrerNotFound) {
+		service.log.Error().Err(err).Str("remote", remoteURL).Str("repo", repo).Str("reference", reference).
+			Msg("error while syncing references for image")
+
+		return err
+	}
+
+	return nil
+}
+
+// SyncImage periodically.
+func (service *BaseService) SyncImage(repo, reference string) error {
+	localRepo := repo
+
+	remoteURL := service.client.GetConfig().URL
+
+	if len(service.config.Content) > 0 {
+		localRepo = service.contentManager.GetRepoDestination(repo)
+		if localRepo == "" {
+			service.log.Info().Str("remote", remoteURL).Str("repo", repo).Str("reference", reference).
+				Msg("will not sync image, filtered out by content")
+
+			return zerr.ErrSyncImageFilteredOut
+		}
+	}
+
+	service.log.Info().Str("remote", remoteURL).Str("repo", repo).Str("reference", reference).
+		Msg("sync: syncing image")
+
+	manifestDigest, err := service.syncTag(repo, localRepo, reference)
+	if err != nil {
+		return err
+	}
+
+	err = service.references.SyncAll(repo, localRepo, manifestDigest.String())
 	if err != nil && !errors.Is(err, zerr.ErrSyncReferrerNotFound) {
 		service.log.Error().Err(err).Str("remote", remoteURL).Str("repo", repo).Str("reference", reference).
 			Msg("error while syncing references for image")

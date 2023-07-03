@@ -5,6 +5,7 @@ package extensions
 
 import (
 	"zotregistry.io/zot/pkg/api/config"
+	syncconf "zotregistry.io/zot/pkg/extensions/config/sync"
 	"zotregistry.io/zot/pkg/extensions/sync"
 	"zotregistry.io/zot/pkg/log"
 	"zotregistry.io/zot/pkg/meta/repodb"
@@ -19,10 +20,11 @@ func EnableSyncExtension(config *config.Config, repoDB repodb.RepoDB,
 		onDemand := sync.NewOnDemand(log)
 
 		for _, registryConfig := range config.Extensions.Sync.Registries {
-			isPeriodical := len(registryConfig.Content) != 0 && registryConfig.PollInterval != 0
+			isPeriodical := isPeriodical(registryConfig)
 			isOnDemand := registryConfig.OnDemand
+			hasSpecificImagesToSync := hasSpecificImages(registryConfig)
 
-			if isPeriodical || isOnDemand {
+			if isPeriodical || isOnDemand || hasSpecificImagesToSync {
 				service, err := sync.New(registryConfig, config.Extensions.Sync.CredentialsFile,
 					storeController, repoDB, log)
 				if err != nil {
@@ -31,7 +33,13 @@ func EnableSyncExtension(config *config.Config, repoDB repodb.RepoDB,
 
 				if isPeriodical {
 					// add to task scheduler periodic sync
-					gen := sync.NewTaskGenerator(service, log)
+					gen := sync.NewRepoGenerator(service, log)
+					sch.SubmitGenerator(gen, registryConfig.PollInterval, scheduler.MediumPriority)
+				}
+
+				if hasSpecificImagesToSync {
+					// add to task scheduler periodically sync specific images
+					gen := sync.NewRepoTagsGenerator(service, log)
 					sch.SubmitGenerator(gen, registryConfig.PollInterval, scheduler.MediumPriority)
 				}
 
@@ -48,4 +56,28 @@ func EnableSyncExtension(config *config.Config, repoDB repodb.RepoDB,
 	log.Info().Msg("Sync registries config not provided or disabled, skipping sync")
 
 	return nil, nil //nolint: nilnil
+}
+
+func hasSpecificImages(registryConfig syncconf.RegistryConfig) bool {
+	if registryConfig.PollInterval != 0 {
+		for _, content := range registryConfig.Content {
+			if len(content.Images) > 0 {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func isPeriodical(registryConfig syncconf.RegistryConfig) bool {
+	if registryConfig.PollInterval != 0 {
+		for _, content := range registryConfig.Content {
+			if content.Prefix != "" {
+				return true
+			}
+		}
+	}
+
+	return false
 }
