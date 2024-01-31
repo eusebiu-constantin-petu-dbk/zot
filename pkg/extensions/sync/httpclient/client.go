@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"net/url"
 	"sync"
@@ -34,6 +33,17 @@ func New(config Config, log log.Logger) (*Client, error) {
 	}
 
 	return client, nil
+}
+
+func (httpClient *Client) HasURL(url string) bool {
+	httpClient.lock.RLock()
+	defer httpClient.lock.RUnlock()
+
+	if httpClient.url.String() == url {
+		return true
+	}
+
+	return false
 }
 
 func (httpClient *Client) GetConfig() *Config {
@@ -80,7 +90,7 @@ func (httpClient *Client) Ping() bool {
 
 	pingURL = *pingURL.JoinPath("/v2/")
 
-	req, err := http.NewRequest(http.MethodGet, pingURL.String(), nil) //nolint
+	req, err := http.NewRequest(http.MethodHead, pingURL.String(), nil) //nolint
 	if err != nil {
 		return false
 	}
@@ -95,19 +105,12 @@ func (httpClient *Client) Ping() bool {
 
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusUnauthorized {
+	// do not care about auth, only if the server can respond.
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusForbidden {
 		return true
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		httpClient.log.Error().Err(err).Str("url", pingURL.String()).
-			Msg("failed to read body while pinging registry")
-
-		return false
-	}
-
-	httpClient.log.Error().Str("url", pingURL.String()).Str("body", string(body)).Int("statusCode", resp.StatusCode).
+	httpClient.log.Error().Str("url", pingURL.String()).Int("statusCode", resp.StatusCode).
 		Str("component", "sync").Msg("failed to ping registry")
 
 	return false

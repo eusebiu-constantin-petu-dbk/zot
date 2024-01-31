@@ -118,7 +118,14 @@ func (service *BaseService) SetNextAvailableClient() error {
 		return nil
 	}
 
+	found := true
+
 	for _, url := range service.config.URLs {
+		// skip current client
+		if service.client != nil && service.client.HasURL(url) {
+			continue
+		}
+
 		remoteAddress := StripRegistryTransport(url)
 		credentials := service.credentials[remoteAddress]
 
@@ -149,12 +156,14 @@ func (service *BaseService) SetNextAvailableClient() error {
 			return err
 		}
 
-		if !service.client.Ping() {
-			continue
+		if service.client.Ping() {
+			found = true
+
+			break
 		}
 	}
 
-	if service.client == nil {
+	if service.client == nil || !found {
 		return zerr.ErrSyncPingRegistry
 	}
 

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"zotregistry.io/zot/pkg/log"
 )
@@ -71,7 +72,7 @@ func CreateHTTPClient(verifyTLS bool, host string, certDir string) (*http.Client
 		htr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint: gosec
 
 		return &http.Client{
-			Timeout:   httpTimeout,
+			Timeout:   10 * time.Second,
 			Transport: htr,
 		}, nil
 	}
@@ -107,7 +108,7 @@ func CreateHTTPClient(verifyTLS bool, host string, certDir string) (*http.Client
 	}
 
 	return &http.Client{
-		Timeout:   httpTimeout,
+		Timeout:   10 * time.Second,
 		Transport: htr,
 	}, nil
 }
